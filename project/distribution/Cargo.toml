@@ -4,3 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = "0.1.86"
+axum = "0.8.1"
+dotenv = "0.15.0"
+futures = "0.3.31"
+hex = "0.4.3"
+oci-spec = "0.7.1"
+regex = "1.11.1"
+serde = "1.0.217"
+serde_json = "1.0.138"
+sha2 = "0.10.8"
+tokio = { version = "1.43.0", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["io"] }
+uuid = { version = "1.13.1", features = ["v4", "fast-rng", "macro-diagnostics"] }

@@ -1,0 +1,22 @@
+rust_binary(
+    name = "distribution",
+    srcs = glob(
+        ["src/**/*.rs"],
+    ),
+    crate_root = "src/main.rs",
+    deps = [
+        "//third-party:async-trait",
+        "//third-party:axum",
+        "//third-party:dotenv",
+        "//third-party:futures",
+        "//third-party:hex",
+        "//third-party:oci-spec",
+        "//third-party:regex",
+        "//third-party:serde",
+        "//third-party:serde_json",
+        "//third-party:sha2",
+        "//third-party:tokio",
+        "//third-party:tokio-util",
+        "//third-party:uuid",
+    ],
+)
