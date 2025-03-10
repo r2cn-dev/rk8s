@@ -613,12 +613,12 @@ pub fn container_init_process(
         tracing::error!(?err, "failed to reset effective capabilities");
         InitProcessError::SyscallOther(err)
     })?;
-    if let Some(caps) = proc.capabilities() {
-        capabilities::drop_privileges(caps, syscall.as_ref()).map_err(|err| {
-            tracing::error!(?err, "failed to drop capabilities");
-            InitProcessError::SyscallOther(err)
-        })?;
-    }
+    // if let Some(caps) = proc.capabilities() {
+    //     capabilities::drop_privileges(caps, syscall.as_ref()).map_err(|err| {
+    //         tracing::error!(?err, "failed to drop capabilities");
+    //         InitProcessError::SyscallOther(err)
+    //     })?;
+    // }
 
     // Change directory to process.cwd if process.cwd is not empty
     if do_chdir {

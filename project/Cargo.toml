@@ -4,10 +4,10 @@ members = [
     "libcgroups", 
     "libcni",
     "libcontainer", "rkb",
-    "rklet"
+    "rkl"
 ]
 
-default-members = ["distribution", "rklet"]
+default-members = ["distribution", "rkl"]
 resolver = "1"
 
 [workspace.dependencies]
