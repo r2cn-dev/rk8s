@@ -1,0 +1,4 @@
+extra_srcs = [
+    "src/doc_tpl/builder_struct.md",
+    "src/doc_tpl/builder_method.md",
+]

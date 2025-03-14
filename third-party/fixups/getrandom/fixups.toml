@@ -1,0 +1,5 @@
+extra_srcs = [
+    "README.md"
+]
+[[buildscript]]
+[buildscript.rustc_flags]
