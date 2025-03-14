@@ -2,16 +2,23 @@
 name = "libfuse-fs"
 version = "0.1.0"
 edition = "2024"
+description = "FUSE Filesystem Library"
+homepage = "https://github.com/genedna/rk8s/tree/main/third-party"
+repository = "https://github.com/genedna/rk8s/tree/main/third-party"
+documentation = "https://github.com/genedna/rk8s/tree/main/third-party"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
+uuid = { version = "1.15.1", features = ["v4"] }
+clap = { version = "4.5.32", features = ["derive"] }
 fuse3 = { version = "0.8.1" ,features = ["tokio-runtime","unprivileged"]}
-radix_trie = "0.2.1"
 tokio = { version = "1.44.0", features = ["full"] }
+reqwest =  { version = "0.12.7", features = ["json","blocking"] }
+serde = { version = "1.0.210", features = ["derive"] }
+radix_trie = "0.2.1"
 futures = "0.3.31"
 libc = "0.2.171"
 serde_json = "1.0.128"
-reqwest =  { version = "0.12.7", features = ["json","blocking"] }
-serde = { version = "1.0.210", features = ["derive"] }
 vm-memory = "0.16.1"
 fuse-backend-rs = "0.12.1"
 bytes = "1.10.1"
@@ -19,5 +26,3 @@ futures-util = "0.3.31"
 log = "0.4.26"
 env_logger = "0.11.7"
 vmm-sys-util = "0.12.1"
-uuid = {version = "1.15.1", features = ["v4"]}
-clap = {version = "4.5.32", features = ["derive"]}
