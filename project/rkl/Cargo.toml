@@ -4,3 +4,28 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.95"
+protobuf = "=3.2.0"
+libcgroups = { path = "../libcgroups", version = "0.5.1" } # MARK: Version
+libcontainer = { path = "../libcontainer", version = "0.5.1" } # MARK: Version
+liboci-cli = "0.5.1"
+clap = { version = "4.5", features = ["derive"] }
+nix = "0.28.0"
+tracing = { version = "0.1.41", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
+tracing-journald = "0.3.1"
+serde_json = "1.0"
+tonic = "0.11"
+prost = "0.12"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros","full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+uuid = { version = "1.3", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+scopeguard = "1.2.0"
+
+[build-dependencies]
+tonic-build = "0.11"
+prost-build = "0.12"

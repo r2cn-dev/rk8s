@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: simple-container-task  
+  labels:
+    app: my-app 
+    bundle: /home/ich/rk8s/project/rkl/test/bundle-file/pause   
+spec:
+  containers:
+    - name: main-container1     
+      image: /home/ich/rk8s/project/rkl/test/bundle-file/busybox1     # bundle path
+      args:                            
+        - "sleep"                   
+        - "10000"            
+      ports:
+        - containerPort: 80
+    
