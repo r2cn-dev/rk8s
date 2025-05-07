@@ -79,6 +79,7 @@ rust_library(
         "//third-party:flate2",
         "//third-party:sha256",
         "//third-party:futures",
+        "//third-party:daemonize",
         "//project/libcgroups:libcgroups",
         "//project/libcontainer:libcontainer",
     ],

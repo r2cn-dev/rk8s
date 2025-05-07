@@ -39,6 +39,7 @@ tar = "0.4.44"
 flate2 = "1.1.1"
 sha256 = "1.6.0"
 futures = "0.3.31"
+daemonize = "0.5.0"
 
 [dev-dependencies]
 tempfile = "3"

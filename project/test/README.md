@@ -17,11 +17,11 @@ metadata:
   name: simple-container-task  
   labels:
     app: my-app 
-    bundle: /home/Qiaoqia/Projects/rk8s/project/rkl/test/bundles/pause   # bundle path of pause container
+    bundle: /home/Qiaoqia/Projects/rk8s/project/test/bundles/pause   # bundle path of pause container
 spec:
   containers:
     - name: main-container1    
-      image: /home/Qiaoqia/Projects/rk8s/project/rkl/test/bundles/busybox   # bundle path
+      image: /home/Qiaoqia/Projects/rk8s/project/test/bundles/busybox   # bundle path
       args:               #the arguments of config.json file             
         - "dd"                   
         - "if=/dev/zero"  

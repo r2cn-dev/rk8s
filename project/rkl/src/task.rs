@@ -16,10 +16,11 @@ use libcontainer::oci_spec::runtime::{
 use liboci_cli::{Create, Delete, Kill, Start};
 use rust_cni::cni::Libcni;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::{env, fs};
+use tracing::{error, info};
 // simulate Kubernetes Pod
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TypeMeta {
@@ -29,7 +30,7 @@ pub struct TypeMeta {
     pub kind: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ObjectMeta {
     pub name: String,
     #[serde(default = "default_namespace")]
@@ -45,7 +46,7 @@ pub fn default_namespace() -> String {
 }
 
 // simulate Kubernetes PodSpec
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PodSpec {
     #[serde(default)]
     pub containers: Vec<ContainerSpec>,
@@ -71,7 +72,7 @@ pub struct Resource {
     pub memory: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContainerSpec {
     pub name: String,
     pub image: String,
@@ -82,7 +83,7 @@ pub struct ContainerSpec {
     pub resources: Option<ContainerRes>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Port {
     #[serde(rename = "containerPort")]
     pub container_port: i32,
@@ -105,7 +106,7 @@ pub struct TaskRunner {
 }
 
 //some information from file.yaml
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PodTask {
     #[serde(rename = "apiVersion")]
     pub api_version: String,
@@ -116,14 +117,7 @@ pub struct PodTask {
 }
 
 impl TaskRunner {
-    //get information from a file  record in Podtask
-    pub fn from_file(path: &str) -> Result<Self> {
-        let mut file = File::open(path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-
-        let mut task: PodTask = serde_yaml::from_str(&contents)?;
-
+    pub fn from_task(mut task: PodTask) -> Result<Self> {
         let pod_name = task.metadata.name.clone();
 
         for container in &mut task.spec.containers {
@@ -136,6 +130,15 @@ impl TaskRunner {
             pause_pid: None,
             sandbox_config: None,
         })
+    }
+
+    //get information from a file  record in Podtask
+    pub fn from_file(path: &str) -> Result<Self> {
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        let task: PodTask = serde_yaml::from_str(&contents)?;
+        Self::from_task(task)
     }
 
     //get PodSandboxConfig
@@ -252,7 +255,21 @@ impl TaskRunner {
             .pid
             .ok_or_else(|| anyhow!("PID not found for container {}", sandbox_id))?;
 
-        Self::setup_pod_network(pid_i32)?;
+        Self::setup_pod_network(pid_i32).map_err(|e| {
+            let rollback_res = delete::delete(
+                Delete {
+                    container_id: sandbox_id.clone(),
+                    force: true,
+                },
+                root_path.clone(),
+            );
+            if let Err(err_rollback) = rollback_res {
+                anyhow!("{e}; and failed to rollback: {err_rollback}")
+            } else {
+                e
+            }
+        })?;
+
         self.pause_pid = Some(pid_i32);
 
         let response = RunPodSandboxResponse {
@@ -530,7 +547,7 @@ impl TaskRunner {
                 pod_sandbox_id
             )
         })?;
-        println!(
+        info!(
             "PodSandbox (Pause) started: {}, pid: {}\n",
             pod_sandbox_id, pause_pid
         );
@@ -545,13 +562,13 @@ impl TaskRunner {
             match self.create_container(create_request) {
                 Ok(create_response) => {
                     created_containers.push(create_response.container_id.clone());
-                    println!(
+                    info!(
                         "Container created: {} (ID: {})",
                         container.name, create_response.container_id
                     );
                 }
                 Err(e) => {
-                    eprintln!("Failed to create container {}: {}", container.name, e);
+                    error!("Failed to create container {}: {}", container.name, e);
 
                     // delete container created
                     for container_id in &created_containers {
@@ -561,12 +578,12 @@ impl TaskRunner {
                         };
                         let root_path = rootpath::determine(None)?;
                         if let Err(delete_err) = delete::delete(delete_args, root_path.clone()) {
-                            eprintln!(
+                            error!(
                                 "Failed to delete container {} during rollback: {}",
                                 container_id, delete_err
                             );
                         } else {
-                            println!("Container deleted during rollback: {}", container_id);
+                            info!("Container deleted during rollback: {}", container_id);
                         }
                     }
 
@@ -575,12 +592,12 @@ impl TaskRunner {
                         pod_sandbox_id: pod_sandbox_id.clone(),
                     };
                     if let Err(stop_err) = self.stop_pod_sandbox(stop_request) {
-                        eprintln!(
+                        error!(
                             "Failed to stop PodSandbox {} during rollback: {}",
                             pod_sandbox_id, stop_err
                         );
                     } else {
-                        println!("PodSandbox stopped during rollback: {}", pod_sandbox_id);
+                        info!("PodSandbox stopped during rollback: {}", pod_sandbox_id);
                     }
 
                     // delete pause
@@ -588,12 +605,12 @@ impl TaskRunner {
                         pod_sandbox_id: pod_sandbox_id.clone(),
                     };
                     if let Err(remove_err) = self.remove_pod_sandbox(remove_request) {
-                        eprintln!(
+                        error!(
                             "Failed to remove PodSandbox {} during rollback: {}",
                             pod_sandbox_id, remove_err
                         );
                     } else {
-                        println!("PodSandbox deleted during rollback: {}", pod_sandbox_id);
+                        info!("PodSandbox deleted during rollback: {}", pod_sandbox_id);
                     }
 
                     return Err(anyhow!(
@@ -612,10 +629,10 @@ impl TaskRunner {
             };
             match self.start_container(start_request) {
                 Ok(_) => {
-                    println!("Container started: {}", container_id);
+                    info!("Container started: {}", container_id);
                 }
                 Err(e) => {
-                    eprintln!("Failed to start container {}: {}", container_id, e);
+                    error!("Failed to start container {}: {}", container_id, e);
                     for container_id in &created_containers {
                         let delete_args = Delete {
                             container_id: container_id.clone(),
@@ -623,12 +640,12 @@ impl TaskRunner {
                         };
                         let root_path = rootpath::determine(None)?;
                         if let Err(delete_err) = delete::delete(delete_args, root_path.clone()) {
-                            eprintln!(
+                            error!(
                                 "Failed to delete container {} during rollback: {}",
                                 container_id, delete_err
                             );
                         } else {
-                            println!("Container deleted during rollback: {}", container_id);
+                            info!("Container deleted during rollback: {}", container_id);
                         }
                     }
 
@@ -636,24 +653,24 @@ impl TaskRunner {
                         pod_sandbox_id: pod_sandbox_id.clone(),
                     };
                     if let Err(stop_err) = self.stop_pod_sandbox(stop_request) {
-                        eprintln!(
+                        error!(
                             "Failed to stop PodSandbox {} during rollback: {}",
                             pod_sandbox_id, stop_err
                         );
                     } else {
-                        println!("PodSandbox stopped during rollback: {}", pod_sandbox_id);
+                        info!("PodSandbox stopped during rollback: {}", pod_sandbox_id);
                     }
 
                     let remove_request = RemovePodSandboxRequest {
                         pod_sandbox_id: pod_sandbox_id.clone(),
                     };
                     if let Err(remove_err) = self.remove_pod_sandbox(remove_request) {
-                        eprintln!(
+                        error!(
                             "Failed to remove PodSandbox {} during rollback: {}",
                             pod_sandbox_id, remove_err
                         );
                     } else {
-                        println!("PodSandbox deleted during rollback: {}", pod_sandbox_id);
+                        info!("PodSandbox deleted during rollback: {}", pod_sandbox_id);
                     }
 
                     return Err(anyhow!("Failed to start container {}: {}", container_id, e));
@@ -750,13 +767,8 @@ impl From<&LinuxContainerResources> for LinuxResources {
 }
 
 pub fn get_cni() -> Result<Libcni, anyhow::Error> {
-    let current_dir = env::current_dir().expect("Failed to get current directory");
-    let plugin_dirs = vec![current_dir.to_string_lossy().into_owned()];
-    let mut plugin_conf_dir = current_dir.clone();
-    for _ in 0..2 {
-        plugin_conf_dir.pop();
-    }
-    plugin_conf_dir.push("test");
+    let plugin_dirs = vec!["/opt/cni/bin".to_string()];
+    let plugin_conf_dir = Path::new("/etc/cni/net.d");
 
     let cni = Libcni::new(
         Some(plugin_dirs),
