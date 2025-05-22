@@ -106,6 +106,7 @@ uuid = { version = "1.15.1", features = [
 vm-memory = "0.16.1"
 vmm-sys-util = "0.12.1"
 walkdir = "2.3"
+daemonize = "0.5.0" 
 
 # Local patches - typically git references
 [patch.crates-io]

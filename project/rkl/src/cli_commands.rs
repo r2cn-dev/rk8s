@@ -1,11 +1,15 @@
 use crate::commands::{delete, exec, exec_cli, load_container, start, state};
+use crate::daemon;
 use crate::rootpath;
 use crate::task::{self, TaskRunner};
 use anyhow::{Result, anyhow};
+use daemonize::Daemonize;
 use liboci_cli::{Delete, Start, State};
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{error, info};
 
 // store infomation of pod
 #[derive(Debug)]
@@ -81,11 +85,10 @@ impl PodInfo {
     }
 }
 
-pub fn run_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
-    let mut task_runner = TaskRunner::from_file(pod_yaml)?;
+pub fn run_pod_from_taskrunner(mut task_runner: TaskRunner) -> Result<(), anyhow::Error> {
     let pod_name = task_runner.task.metadata.name.clone();
     let pod_sandbox_id = task_runner.run()?;
-    println!("PodSandbox ID: {}", pod_sandbox_id);
+    info!("PodSandbox ID: {}", pod_sandbox_id);
 
     let container_names: Vec<String> = task_runner
         .task
@@ -102,8 +105,13 @@ pub fn run_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
     };
     pod_info.save(&root_path, &pod_name)?;
 
-    println!("Pod {} created and started successfully", pod_name);
+    info!("Pod {} created and started successfully", pod_name);
     Ok(())
+}
+
+pub fn run_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
+    let task_runner = TaskRunner::from_file(pod_yaml)?;
+    run_pod_from_taskrunner(task_runner)
 }
 
 pub fn create_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
@@ -125,7 +133,7 @@ pub fn create_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
             pod_sandbox_id
         )
     })?;
-    println!(
+    info!(
         "PodSandbox (Pause) created: {}, pid: {}\n",
         pod_sandbox_id, pause_pid
     );
@@ -136,7 +144,7 @@ pub fn create_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
             task_runner.build_create_container_request(&pod_sandbox_id, container)?;
         let create_response = task_runner.create_container(create_request)?;
         container_ids.push(create_response.container_id.clone());
-        println!(
+        info!(
             "Container created: {} (ID: {})",
             container.name, create_response.container_id
         );
@@ -149,7 +157,7 @@ pub fn create_pod(pod_yaml: &str) -> Result<(), anyhow::Error> {
     };
     pod_info.save(&root_path, &pod_name)?;
 
-    println!("Pod {} created successfully", pod_name);
+    info!("Pod {} created successfully", pod_name);
     Ok(())
 }
 
@@ -167,10 +175,10 @@ pub fn start_pod(pod_name: &str) -> Result<(), anyhow::Error> {
         };
         start::start(start_args, root_path.clone())
             .map_err(|e| anyhow!("Failed to start container {}: {}", container_name, e))?;
-        println!("Container started: {}", container_name);
+        info!("Container started: {}", container_name);
     }
 
-    println!("Pod {} started successfully", pod_name);
+    info!("Pod {} started successfully", pod_name);
     Ok(())
 }
 
@@ -192,12 +200,12 @@ pub fn delete_pod(pod_name: &str) -> Result<(), anyhow::Error> {
         };
         let root_path = rootpath::determine(None)?;
         if let Err(delete_err) = delete::delete(delete_args, root_path.clone()) {
-            eprintln!(
+            error!(
                 "Failed to delete container {}: {}",
                 container_name, delete_err
             );
         } else {
-            println!("Container deleted: {}", container_name);
+            info!("Container deleted: {}", container_name);
         }
     }
 
@@ -208,17 +216,17 @@ pub fn delete_pod(pod_name: &str) -> Result<(), anyhow::Error> {
     };
     let root_path = rootpath::determine(None)?;
     if let Err(delete_err) = delete::delete(delete_args, root_path.clone()) {
-        eprintln!(
+        error!(
             "Failed to delete PodSandbox {}: {}",
             pod_info.pod_sandbox_id, delete_err
         );
     } else {
-        println!("PodSandbox deleted: {}", pod_info.pod_sandbox_id);
+        info!("PodSandbox deleted: {}", pod_info.pod_sandbox_id);
     }
 
     // delete pod file
     PodInfo::delete(&root_path, pod_name)?;
-    println!("Pod {} deleted successfully", pod_name);
+    info!("Pod {} deleted successfully", pod_name);
     Ok(())
 }
 
@@ -269,4 +277,32 @@ pub fn exec_pod(args: exec_cli::Exec) -> Result<i32> {
     }
     let exit_code = exec::exec(args, root_path)?;
     Ok(exit_code)
+}
+
+pub fn set_daemonize() -> Result<(), anyhow::Error> {
+    let log_path = PathBuf::from("/var/log/rk8s/");
+    if !log_path.exists() {
+        std::fs::create_dir(log_path)?;
+    }
+
+    let time_stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let out = File::create(format!("/var/log/rk8s/log_{}.out", time_stamp)).unwrap();
+    let err = File::create(format!("/var/log/rk8s/log_{}.err", time_stamp)).unwrap();
+    let pid = format!("/tmp/rkl_{}.pid", time_stamp);
+    let daemonize = Daemonize::new().pid_file(&pid).stdout(out).stderr(err);
+    daemonize.start()?;
+    Ok(())
+}
+
+pub fn start_daemon() -> Result<(), anyhow::Error> {
+    let manifest_path = Path::new("/etc/rk8s/manifests");
+    if !manifest_path.exists() {
+        std::fs::create_dir(manifest_path)?;
+    }
+    #[cfg(not(debug_assertions))]
+    set_daemonize()?;
+    daemon::main()
 }
