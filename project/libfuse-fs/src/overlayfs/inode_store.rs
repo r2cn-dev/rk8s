@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::{Error, ErrorKind, Result};
+use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::passthrough::VFS_MAX_INO;
@@ -85,7 +86,7 @@ impl InodeStore {
         let removed = match self.inodes.remove(&inode) {
             Some(v) => {
                 // Refcount is not 0, we have to delay the removal.
-                if v.lookups.load().await > 0 {
+                if v.lookups.load(Ordering::Relaxed) > 0 {
                     self.deleted.insert(inode, v.clone());
                     return None;
                 }
@@ -96,7 +97,7 @@ impl InodeStore {
                 match self.deleted.get(&inode) {
                     Some(v) => {
                         // Refcount is 0, the inode can be removed now.
-                        if v.lookups.load().await == 0 {
+                        if v.lookups.load(Ordering::Relaxed) == 0 {
                             self.deleted.remove(&inode)
                         } else {
                             // Refcount is not 0, the inode will be removed later.
@@ -125,7 +126,7 @@ impl InodeStore {
             .map(|(inode, ovi)| {
                 let path = ovi.path.clone();
                 async move {
-                    (inode, path, ovi.lookups.load().await) // Read the Inode State.
+                    (inode, path, ovi.lookups.load(Ordering::Relaxed)) // Read the Inode State.
                 }
             })
             .collect::<Vec<_>>();
@@ -136,7 +137,7 @@ impl InodeStore {
         let to_delete = self
             .deleted
             .iter()
-            .map(|(inode, ovi)| async move { (inode, ovi.path.clone(), ovi.lookups.load().await) })
+            .map(|(inode, ovi)| async move { (inode, ovi.path.clone(), ovi.lookups.load(Ordering::Relaxed)) })
             .collect::<Vec<_>>();
         let mut delete_to = join_all(to_delete).await;
         delete_to.sort_by(|a, b| a.0.cmp(b.0));

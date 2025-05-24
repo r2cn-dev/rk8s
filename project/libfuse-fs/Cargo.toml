@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 uuid = { version = "1.15.1", features = ["v4"] }
 clap = { version = "4.5.32", features = ["derive"] }
-fuse3 = { version = "0.8.1", features = ["tokio-runtime", "unprivileged"] }
+fuse3 = { git = "https://github.com/Ivanbeethoven/fuse3", rev = "6ab7cc0b04cb984a295d232f235aac9ec1dcd2c7", features = ["tokio-runtime", "unprivileged"] }
 tokio = { version = "1.44.0", features = ["full"] }
 reqwest = { version = "0.12.7", features = ["json", "blocking"] }
 serde = { version = "1.0.210", features = ["derive"] }

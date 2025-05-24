@@ -724,7 +724,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
     }
 
     /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget]
-    async fn batch_forget(&self, req: Request, inodes: &[Inode]) {
+    async fn batch_forget(&self, req: Request, inodes: &[(Inode, u64)]) {
         let _ = self.inner.batch_forget(req, inodes).await;
     }
 
