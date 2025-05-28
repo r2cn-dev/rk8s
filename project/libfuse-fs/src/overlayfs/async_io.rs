@@ -8,6 +8,7 @@ use std::ffi::OsStr;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::num::NonZeroU32;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
@@ -15,25 +16,30 @@ use super::Inode;
 use super::OverlayFs;
 use super::utils;
 impl Filesystem for OverlayFs {
+    async  fn rename2(&self,req:Request,parent:fuse3::Inode,name: &OsStr,new_parent:fuse3::Inode,new_name: &OsStr,flags:u32,) -> Result<()> {
+
+        Ok(())
+    }
+
     /// initialize filesystem. Called before any other filesystem method.
     async fn init(&self, _req: Request) -> Result<ReplyInit> {
         if self.config.do_import {
             self.import().await?;
         }
         if !self.config.do_import || self.config.writeback {
-            self.writeback.store(true).await;
+            self.writeback.store(true, Ordering::Relaxed);
         }
         if !self.config.do_import || self.config.no_open {
-            self.no_open.store(true).await;
+            self.no_open.store(true, Ordering::Relaxed);
         }
         if !self.config.do_import || self.config.no_opendir {
-            self.no_opendir.store(true).await;
+            self.no_opendir.store(true, Ordering::Relaxed);
         }
         if !self.config.do_import || self.config.killpriv_v2 {
-            self.killpriv_v2.store(true).await;
+            self.killpriv_v2.store(true, Ordering::Relaxed);
         }
         if self.config.perfile_dax {
-            self.perfile_dax.store(true).await;
+            self.perfile_dax.store(true, Ordering::Relaxed);
         }
 
         Ok(ReplyInit {
@@ -50,7 +56,6 @@ impl Filesystem for OverlayFs {
     /// look up a directory entry by name and get its attributes.
     async fn lookup(&self, req: Request, parent: Inode, name: &OsStr) -> Result<ReplyEntry> {
         let tmp = name.to_string_lossy().to_string();
-        println!("LOOKUP: parent: {}, name: {}\n", parent, tmp);
         let result = self.do_lookup(req, parent, tmp.as_str()).await;
         match result {
             Ok(e) => Ok(e),
@@ -79,13 +84,13 @@ impl Filesystem for OverlayFs {
         fh: Option<u64>,
         flags: u32,
     ) -> Result<ReplyAttr> {
-        if !self.no_open.load().await {
+        if !self.no_open.load(Ordering::Relaxed) {
             if let Some(h) = fh {
                 if let Some(hd) = self.handles.lock().await.get(&h) {
                     if let Some(ref rh) = hd.real_handle {
                         let rep = rh
                             .layer
-                            .getattr(req, rh.inode, Some(rh.handle.load().await), 0)
+                            .getattr(req, rh.inode, Some(rh.handle.load(Ordering::Relaxed)), 0)
                             .await?;
                         return Ok(rep);
                     }
@@ -113,7 +118,7 @@ impl Filesystem for OverlayFs {
             .ok_or_else(|| Error::from_raw_os_error(libc::EROFS))?;
 
         // deal with handle first
-        if !self.no_open.load().await {
+        if !self.no_open.load(Ordering::Relaxed) {
             if let Some(h) = fh {
                 if let Some(hd) = self.handles.lock().await.get(&h) {
                     if let Some(ref rhd) = hd.real_handle {
@@ -121,7 +126,7 @@ impl Filesystem for OverlayFs {
                         if rhd.in_upper_layer {
                             let rep = rhd
                                 .layer
-                                .setattr(req, rhd.inode, Some(rhd.handle.load().await), set_attr)
+                                .setattr(req, rhd.inode, Some(rhd.handle.load(Ordering::Relaxed)), set_attr)
                                 .await?;
 
                             return Ok(rep);
@@ -147,7 +152,7 @@ impl Filesystem for OverlayFs {
 
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -191,7 +196,7 @@ impl Filesystem for OverlayFs {
 
         // Check if parent exists.
         let pnode = self.lookup_node(req, parent, "").await?;
-        if pnode.whiteout.load().await {
+        if pnode.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -215,11 +220,11 @@ impl Filesystem for OverlayFs {
 
         // no entry or whiteout
         let pnode = self.lookup_node(req, parent, "").await?;
-        if pnode.whiteout.load().await {
+        if pnode.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
-        self.do_mkdir(req, &pnode, sname.as_str(), mode, umask)
+        self.do_mkdir(req, pnode, sname.as_str(), mode, umask)
             .await?;
         self.do_lookup(req, parent, sname.as_str())
             .await
@@ -263,12 +268,12 @@ impl Filesystem for OverlayFs {
         new_name: &OsStr,
     ) -> Result<ReplyEntry> {
         let node = self.lookup_node(req, inode, "").await?;
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
         let newpnode = self.lookup_node(req, new_parent, "").await?;
-        if newpnode.whiteout.load().await {
+        if newpnode.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
         let name = new_name.to_str().unwrap();
@@ -293,7 +298,7 @@ impl Filesystem for OverlayFs {
     /// [fuse_common.h](https://libfuse.github.io/doxygen/include_2fuse__common_8h_source.html) for
     /// more details.
     async fn open(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
-        if self.no_open.load().await {
+        if self.no_open.load(Ordering::Relaxed) {
             info!("fuse: open is not supported.");
             return Err(Error::from_raw_os_error(libc::ENOSYS).into());
         }
@@ -321,7 +326,7 @@ impl Filesystem for OverlayFs {
         let node = self.lookup_node(req, inode, "").await?;
 
         // whiteout node
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -333,7 +338,7 @@ impl Filesystem for OverlayFs {
         // assign a handle in overlayfs and open it
         let (_l, h) = node.open(req, flags as u32, 0).await?;
 
-        let hd = self.next_handle.fetch_add(1).await;
+        let hd = self.next_handle.fetch_add(1, Ordering::Relaxed);
         let (layer, in_upper_layer, inode) = node.first_layer_inode().await;
         let handle_data = HandleData {
             node: node.clone(),
@@ -374,7 +379,7 @@ impl Filesystem for OverlayFs {
             None => Err(Error::from_raw_os_error(libc::ENOENT).into()),
             Some(ref hd) => {
                 hd.layer
-                    .read(req, hd.inode, hd.handle.load().await, offset, size)
+                    .read(req, hd.inode, hd.handle.load( Ordering::Relaxed), offset, size)
                     .await
             }
         }
@@ -407,7 +412,7 @@ impl Filesystem for OverlayFs {
                     .write(
                         req,
                         hd.inode,
-                        hd.handle.load().await,
+                        hd.handle.load(Ordering::Relaxed),
                         offset,
                         data,
                         write_flags,
@@ -433,13 +438,13 @@ impl Filesystem for OverlayFs {
     async fn release(
         &self,
         req: Request,
-        _inode: Inode,
+        inode: Inode,
         fh: u64,
         flags: u32,
         lock_owner: u64,
         flush: bool,
     ) -> Result<()> {
-        if self.no_open.load().await {
+        if self.no_open.load(Ordering::Relaxed) {
             info!("fuse: release is not supported.");
             return Err(Error::from_raw_os_error(libc::ENOSYS).into());
         }
@@ -450,7 +455,7 @@ impl Filesystem for OverlayFs {
             } else {
                 return Err(Error::new(ErrorKind::Other, "no handle").into());
             };
-            let real_handle = rh.handle.load().await;
+            let real_handle = rh.handle.load(Ordering::Relaxed);
             let real_inode = rh.inode;
             rh.layer
                 .release(req, real_inode, real_handle, flags, lock_owner, flush)
@@ -458,7 +463,7 @@ impl Filesystem for OverlayFs {
         }
 
         self.handles.lock().await.remove(&fh);
-
+        
         Ok(())
     }
 
@@ -482,7 +487,7 @@ impl Filesystem for OverlayFs {
     ) -> Result<()> {
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -510,7 +515,7 @@ impl Filesystem for OverlayFs {
     ) -> Result<ReplyXAttr> {
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -525,7 +530,7 @@ impl Filesystem for OverlayFs {
     /// [`ReplyXAttr::Data`] to send the attribute list, or return an error.
     async fn listxattr(&self, req: Request, inode: Inode, size: u32) -> Result<ReplyXAttr> {
         let node = self.lookup_node(req, inode, "").await?;
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
         let (layer, real_inode) = self.find_real_inode(inode).await?;
@@ -536,7 +541,7 @@ impl Filesystem for OverlayFs {
     async fn removexattr(&self, req: Request, inode: Inode, name: &OsStr) -> Result<()> {
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -564,13 +569,13 @@ impl Filesystem for OverlayFs {
     /// errors. If the filesystem supports file locking operations ([`setlk`][Filesystem::setlk],
     /// [`getlk`][Filesystem::getlk]) it should remove all locks belonging to `lock_owner`.
     async fn flush(&self, req: Request, inode: Inode, fh: u64, lock_owner: u64) -> Result<()> {
-        if self.no_open.load().await {
+        if self.no_open.load(Ordering::Relaxed)  {
             return Err(Error::from_raw_os_error(libc::ENOSYS).into());
         }
 
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -589,7 +594,7 @@ impl Filesystem for OverlayFs {
     /// sets [`MountOptions::no_open_dir_support`][crate::MountOptions::no_open_dir_support] and
     /// if the kernel supports `FUSE_NO_OPENDIR_SUPPORT`.
     async fn opendir(&self, req: Request, inode: Inode, flags: u32) -> Result<ReplyOpen> {
-        if self.no_opendir.load().await {
+        if self.no_opendir.load(Ordering::Relaxed) {
             info!("fuse: opendir is not supported.");
             return Err(Error::from_raw_os_error(libc::ENOSYS).into());
         }
@@ -597,7 +602,7 @@ impl Filesystem for OverlayFs {
         // lookup node
         let node = self.lookup_node(req, inode, ".").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -606,7 +611,7 @@ impl Filesystem for OverlayFs {
             return Err(Error::from_raw_os_error(libc::ENOTDIR).into());
         }
 
-        let handle = self.next_handle.fetch_add(1).await;
+        let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
 
         self.handles.lock().await.insert(
             handle,
@@ -672,7 +677,7 @@ impl Filesystem for OverlayFs {
     /// [`opendir`][Filesystem::opendir] method, or will be undefined if the
     /// [`opendir`][Filesystem::opendir] method didn't set any value.
     async fn releasedir(&self, _req: Request, _inode: Inode, fh: u64, _flags: u32) -> Result<()> {
-        if self.no_opendir.load().await {
+        if self.no_opendir.load(Ordering::Relaxed) {
             info!("fuse: releasedir is not supported.");
             return Err(Error::from_raw_os_error(libc::ENOSYS).into());
         }
@@ -697,7 +702,7 @@ impl Filesystem for OverlayFs {
     async fn access(&self, req: Request, inode: Inode, mask: u32) -> Result<()> {
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -731,7 +736,7 @@ impl Filesystem for OverlayFs {
     ) -> Result<ReplyCreated> {
         // Parent doesn't exist.
         let pnode = self.lookup_node(req, parent, "").await?;
-        if pnode.whiteout.load().await {
+        if pnode.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -765,9 +770,9 @@ impl Filesystem for OverlayFs {
     }
 
     /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget]
-    async fn batch_forget(&self, _req: Request, inodes: &[Inode]) {
+    async fn batch_forget(&self, _req: Request, inodes: &[(Inode, u64)]) {
         for inode in inodes {
-            self.forget_one(*inode, 1).await;
+            self.forget_one(inode.0, inode.1).await;
         }
     }
 
@@ -802,7 +807,7 @@ impl Filesystem for OverlayFs {
                     .fallocate(
                         req,
                         rhd.inode,
-                        rhd.handle.load().await,
+                        rhd.handle.load(Ordering::Relaxed) ,
                         offset,
                         length,
                         mode,
@@ -825,7 +830,7 @@ impl Filesystem for OverlayFs {
         // we need special process if it can be called on dir
         let node = self.lookup_node(req, inode, "").await?;
 
-        if node.whiteout.load().await {
+        if node.whiteout.load(Ordering::Relaxed) {
             return Err(Error::from_raw_os_error(libc::ENOENT).into());
         }
 
@@ -864,10 +869,10 @@ mod tests {
         // Set up test environment
         let mountpoint = "/home/luxian/megatest/true_temp".to_string();
         let lowerdir = vec![
-            "/home/luxian/megadir/store/2bd95906a56f443e84acb10dfaf86717ceb481a0/lower".to_string(),
+            "/home/luxian/github/buck2-rust-third-party".to_string(),
         ];
         let upperdir =
-            "/home/luxian/megadir/store/2bd95906a56f443e84acb10dfaf86717ceb481a0/upper".to_string();
+            "/home/luxian/upper".to_string();
 
         // Create lower layers
         let mut lower_layers = Vec::new();
