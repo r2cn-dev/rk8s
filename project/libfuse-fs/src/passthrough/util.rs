@@ -56,8 +56,7 @@ impl UniqueInodeGenerator {
                 btree_map::Entry::Occupied(v) => *v.get(),
                 btree_map::Entry::Vacant(v) => {
                     if self.next_unique_id.load(Ordering::Relaxed) == u8::MAX {
-                        return Err(io::Error::new(
-                            io::ErrorKind::Other,
+                        return Err(io::Error::other(
                             "the number of combinations of dev and mntid exceeds 255",
                         ));
                     }
@@ -72,9 +71,8 @@ impl UniqueInodeGenerator {
             id.ino
         } else {
             if self.next_virtual_inode.load(Ordering::Relaxed) > MAX_HOST_INO {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("the virtual inode excess {}", MAX_HOST_INO),
+                return Err(io::Error::other(
+                    format!("the virtual inode excess {MAX_HOST_INO}"),
                 ));
             }
             self.next_virtual_inode.fetch_add(1, Ordering::Relaxed) | VIRTUAL_INODE_FLAG
@@ -90,7 +88,7 @@ impl UniqueInodeGenerator {
         if inode > VFS_MAX_INO {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("the inode {} excess {}", inode, VFS_MAX_INO),
+                format!("the inode {inode} excess {VFS_MAX_INO}"),
             ));
         }
 
@@ -98,7 +96,7 @@ impl UniqueInodeGenerator {
         if dev_mntid == u8::MAX {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("invalid dev and mntid {} excess 255", dev_mntid),
+                format!("invalid dev and mntid {dev_mntid} excess 255"),
             ));
         }
 
@@ -119,10 +117,7 @@ impl UniqueInodeGenerator {
         if !found {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!(
-                    "invalid dev and mntid {},there is no record in memory ",
-                    dev_mntid
-                ),
+                format!("invalid dev and mntid {dev_mntid},there is no record in memory "),
             ));
         }
         Ok(InodeId {

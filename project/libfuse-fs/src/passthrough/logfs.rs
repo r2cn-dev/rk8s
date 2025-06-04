@@ -89,7 +89,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         );
         match self.inner.lookup(req, parent, name).await {
             Ok(reply) => {
-                println!("look up result :{:?}", reply);
+                println!("look up result :{reply:?}");
                 Ok(reply)
             }
             Err(e) => {
@@ -120,7 +120,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         );
         match self.inner.getattr(req, inode, fh, flags).await {
             Ok(reply) => {
-                println!("getattr result :{:?}", reply);
+                println!("getattr result :{reply:?}");
                 Ok(reply)
             }
             Err(e) => {
@@ -724,7 +724,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
     }
 
     /// forget more than one inode. This is a batch version [`forget`][Filesystem::forget]
-    async fn batch_forget(&self, req: Request, inodes: &[Inode]) {
+    async fn batch_forget(&self, req: Request, inodes: &[(Inode, u64)]) {
         let _ = self.inner.batch_forget(req, inodes).await;
     }
 

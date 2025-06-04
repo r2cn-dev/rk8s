@@ -27,11 +27,17 @@ impl InodeId {
     }
 }
 
+/// A store for inodes, which allows to map inodes to their data and vice versa.
+///
+/// It maintains a mapping of inodes to their data, as well as a mapping of inode IDs and file handles to inodes.
+/// The store is designed to ensure that the same inodes are used for the same files, even if they are opened multiple times.
+/// The store is not thread-safe, so it should be used in a single-threaded context or protected by a mutex.
+/// The store uses `BTreeMap` to maintain the mappings, which allows for efficient lookups and insertions.
 #[derive(Default)]
 pub struct InodeStore {
-    data: BTreeMap<Inode, Arc<InodeData>>,
-    by_id: BTreeMap<InodeId, Inode>,
-    by_handle: BTreeMap<Arc<FileHandle>, Inode>,
+    data: BTreeMap<Inode, Arc<InodeData>>, // Maps inodes to their data.
+    by_id: BTreeMap<InodeId, Inode>,       // Maps real inode IDs to inodes.
+    by_handle: BTreeMap<Arc<FileHandle>, Inode>, // Maps file handles to inodes.
 }
 
 impl InodeStore {

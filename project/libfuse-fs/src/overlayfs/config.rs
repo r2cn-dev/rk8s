@@ -36,6 +36,6 @@ impl fmt::Debug for CachePolicy {
             CachePolicy::Auto => "Auto",
         };
 
-        write!(f, "CachePolicy: {}", policy)
+        write!(f, "CachePolicy: {policy}")
     }
 }

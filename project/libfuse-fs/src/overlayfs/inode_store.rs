@@ -2,7 +2,8 @@
 // 2024 From [fuse_backend_rs](https://github.com/cloud-hypervisor/fuse-backend-rs)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, Result};
+use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::passthrough::VFS_MAX_INO;
@@ -48,8 +49,7 @@ impl InodeStore {
             ino += 1;
         }
         error!("reached maximum inode number: {}", self.inode_limit);
-        Err(Error::new(
-            ErrorKind::Other,
+        Err(Error::other(
             format!("maximum inode number {} reached", self.inode_limit),
         ))
     }
@@ -63,8 +63,9 @@ impl InodeStore {
         }
     }
 
-    pub(crate) fn insert_inode(&mut self, inode: Inode, node: Arc<OverlayInode>) {
-        self.path_mapping.insert(node.path.clone(), inode);
+    pub(crate) async fn insert_inode(&mut self, inode: Inode, node: Arc<OverlayInode>) {
+        self.path_mapping
+            .insert(node.path.read().await.clone(), inode);
         self.inodes.insert(inode, node);
     }
 
@@ -85,7 +86,7 @@ impl InodeStore {
         let removed = match self.inodes.remove(&inode) {
             Some(v) => {
                 // Refcount is not 0, we have to delay the removal.
-                if v.lookups.load().await > 0 {
+                if v.lookups.load(Ordering::Relaxed) > 0 {
                     self.deleted.insert(inode, v.clone());
                     return None;
                 }
@@ -96,7 +97,7 @@ impl InodeStore {
                 match self.deleted.get(&inode) {
                     Some(v) => {
                         // Refcount is 0, the inode can be removed now.
-                        if v.lookups.load().await == 0 {
+                        if v.lookups.load(Ordering::Relaxed) == 0 {
                             self.deleted.remove(&inode)
                         } else {
                             // Refcount is not 0, the inode will be removed later.
@@ -123,9 +124,9 @@ impl InodeStore {
             .inodes
             .iter()
             .map(|(inode, ovi)| {
-                let path = ovi.path.clone();
                 async move {
-                    (inode, path, ovi.lookups.load().await) // Read the Inode State.
+                    let path = ovi.path.read().await.clone();
+                    (inode, path, ovi.lookups.load(Ordering::Relaxed)) // Read the Inode State.
                 }
             })
             .collect::<Vec<_>>();
@@ -136,7 +137,13 @@ impl InodeStore {
         let to_delete = self
             .deleted
             .iter()
-            .map(|(inode, ovi)| async move { (inode, ovi.path.clone(), ovi.lookups.load().await) })
+            .map(|(inode, ovi)| async move {
+                (
+                    inode,
+                    ovi.path.read().await.clone(),
+                    ovi.lookups.load(Ordering::Relaxed),
+                )
+            })
             .collect::<Vec<_>>();
         let mut delete_to = join_all(to_delete).await;
         delete_to.sort_by(|a, b| a.0.cmp(b.0));
@@ -153,13 +160,13 @@ impl InodeStore {
 mod test {
     use super::*;
 
-    #[test]
-    fn test_alloc_unique() {
+    #[tokio::test]
+    async fn test_alloc_unique() {
         let mut store = InodeStore::new();
         let empty_node = Arc::new(OverlayInode::new());
-        store.insert_inode(1, empty_node.clone());
-        store.insert_inode(2, empty_node.clone());
-        store.insert_inode(VFS_MAX_INO - 1, empty_node.clone());
+        store.insert_inode(1, empty_node.clone()).await;
+        store.insert_inode(2, empty_node.clone()).await;
+        store.insert_inode(VFS_MAX_INO - 1, empty_node.clone()).await;
 
         let inode = store.alloc_unique_inode().unwrap();
         assert_eq!(inode, 3);
@@ -173,18 +180,18 @@ mod test {
         assert_eq!(inode, 3);
     }
 
-    #[test]
-    fn test_alloc_existing_path() {
+    #[tokio::test]
+    async fn test_alloc_existing_path() {
         let mut store = InodeStore::new();
         let mut node_a = OverlayInode::new();
-        node_a.path = "/a".to_string();
-        store.insert_inode(1, Arc::new(node_a));
+        node_a.path = tokio::sync::RwLock::new("/a".to_string());
+        store.insert_inode(1, Arc::new(node_a)).await;
         let mut node_b = OverlayInode::new();
-        node_b.path = "/b".to_string();
-        store.insert_inode(2, Arc::new(node_b));
+        node_b.path = tokio::sync::RwLock::new("/b".to_string());
+        store.insert_inode(2, Arc::new(node_b)).await;
         let mut node_c = OverlayInode::new();
-        node_c.path = "/c".to_string();
-        store.insert_inode(VFS_MAX_INO - 1, Arc::new(node_c));
+        node_c.path = tokio::sync::RwLock::new("/c".to_string());
+        store.insert_inode(VFS_MAX_INO - 1, Arc::new(node_c)).await;
 
         let inode = store.alloc_inode("/a").unwrap();
         assert_eq!(inode, 1);

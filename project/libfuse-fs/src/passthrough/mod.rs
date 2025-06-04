@@ -8,6 +8,7 @@ use crate::util::convert_stat64_to_file_attr;
 use mount_fd::MountFds;
 use statx::StatExt;
 use std::io::Result;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::{
     collections::{BTreeMap, btree_map},
     ffi::{CStr, CString, OsString},
@@ -20,6 +21,7 @@ use std::{
     },
     path::PathBuf,
     sync::Arc,
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 use util::{
@@ -38,7 +40,6 @@ pub mod newlogfs;
 mod os_compat;
 mod statx;
 mod util;
-use crate::util::atomic::*;
 
 /// Current directory
 pub const CURRENT_DIR_CSTR: &[u8] = b".\0";
@@ -288,11 +289,11 @@ impl HandleData {
     }
 
     async fn get_flags(&self) -> u32 {
-        self.open_flags.load().await
+        self.open_flags.load(Ordering::Relaxed)
     }
 
     async fn set_flags(&self, flags: u32) {
-        self.open_flags.store(flags).await;
+        self.open_flags.store(flags, Ordering::Relaxed);
     }
 }
 
@@ -321,13 +322,13 @@ impl HandleMap {
         // Do not expect poisoned lock here, so safe to unwrap().
         let mut handles = self.handles.write().await;
 
-        if let btree_map::Entry::Occupied(e) = handles.entry(handle) {
-            if e.get().inode == inode {
-                // We don't need to close the file here because that will happen automatically when
-                // the last `Arc` is dropped.
-                e.remove();
-                return Ok(());
-            }
+        if let btree_map::Entry::Occupied(e) = handles.entry(handle)
+            && e.get().inode == inode
+        {
+            // We don't need to close the file here because that will happen automatically when
+            // the last `Arc` is dropped.
+            e.remove();
+            return Ok(());
         }
 
         Err(ebadf())
@@ -626,7 +627,7 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
             // ensuring that the same file is always the same inode
             match InodeMap::get_inode_locked(inodes, id, handle_opt) {
                 Some(a) => Ok(a),
-                None => Ok(self.next_inode.fetch_add(1).await),
+                None => Ok(self.next_inode.fetch_add(1, Ordering::Relaxed)),
             }
         } else {
             let inode = if id.ino > MAX_HOST_INO {
@@ -666,17 +667,21 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
                 // No existing entry found
                 None => break 'search,
                 Some(data) => {
-                    let curr = data.refcount.load().await;
+                    let curr = data.refcount.load(Ordering::Acquire);
                     // forgot_one() has just destroyed the entry, retry...
-                    // if curr == 0 {
-                    //     continue 'search;
-                    // }
+                    if curr == 0 {
+                        continue 'search;
+                    }
 
                     // Saturating add to avoid integer overflow, it's not realistic to saturate u64.
                     let new = curr.saturating_add(1);
 
                     // Synchronizes with the forgot_one()
-                    if data.refcount.compare_exchange(curr, new).await.is_ok() {
+                    if data
+                        .refcount
+                        .compare_exchange(curr, new, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
                         found = Some(data.inode);
                         break;
                     }
@@ -704,7 +709,7 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
                 Some(data) => {
                     // An inode was added concurrently while we did not hold a lock on
                     // `self.inodes_map`, so we use that instead. `handle` will be dropped.
-                    data.refcount.fetch_add(1).await;
+                    data.refcount.fetch_add(1, Ordering::Relaxed);
                     data.inode
                 }
                 None => {
@@ -714,24 +719,22 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
 
                     if inode > VFS_MAX_INO {
                         error!("fuse: max inode number reached: {}", VFS_MAX_INO);
-                        return Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("max inode number reached: {VFS_MAX_INO}"),
-                        )
+                        return Err(io::Error::other(format!(
+                            "max inode number reached: {VFS_MAX_INO}"
+                        ))
                         .into());
                     }
                     drop(inodes);
+
                     self.inode_map
-                        .inodes
-                        .write()
-                        .await
                         .insert(Arc::new(InodeData::new(
                             inode,
                             handle,
-                            2,
+                            1,
                             id,
                             st.st.st_mode,
-                        )));
+                        )))
+                        .await;
 
                     inode
                 }
@@ -764,7 +767,7 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
         })
     }
 
-    async fn forget_one(&self, inodes: &mut InodeStore, inode: Inode, count: u64) {
+    fn forget_one(&self, inodes: &mut InodeStore, inode: Inode, count: u64) {
         // ROOT_ID should not be forgotten, or we're not able to access to files any more.
         if inode == ROOT_ID {
             return;
@@ -776,20 +779,24 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
             // reference to the inode data and is in the process of updating the refcount so we need
             // to loop here until we can decrement successfully.
             loop {
-                let curr = data.refcount.load().await;
+                let curr = data.refcount.load(Ordering::Acquire);
 
                 // Saturating sub because it doesn't make sense for a refcount to go below zero and
                 // we don't want misbehaving clients to cause integer overflow.
                 let new = curr.saturating_sub(count);
 
                 // Synchronizes with the acquire load in `do_lookup`.
-                if data.refcount.compare_exchange(curr, new).await.is_ok() {
+                if data
+                    .refcount
+                    .compare_exchange(curr, new, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
                     if new == 0 {
                         // We just removed the last refcount for this inode.
                         // The allocated inode number should be kept in the map when use_host_ino
                         // is false or host inode(don't use the virtual 56bit inode) is bigger than MAX_HOST_INO.
-                        // let keep_mapping = !self.cfg.use_host_ino || data.id.ino > MAX_HOST_INO;
-                        // inodes.remove(&inode, keep_mapping);
+                        let keep_mapping = !self.cfg.use_host_ino || data.id.ino > MAX_HOST_INO;
+                        inodes.remove(&inode, keep_mapping);
                     }
                     break;
                 }
@@ -864,7 +871,7 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
 
     async fn get_writeback_open_flags(&self, flags: i32) -> i32 {
         let mut new_flags = flags;
-        let writeback = self.writeback.load().await;
+        let writeback = self.writeback.load(Ordering::Relaxed);
 
         // When writeback caching is enabled, the kernel may send read requests even if the
         // userspace program opened the file write-only. So we need to ensure that we have opened
@@ -895,7 +902,7 @@ mod tests {
     use fuse3::{MountOptions, raw::Session};
     use tokio::signal;
 
-    use crate::passthrough::{PassthroughFs, config::Config, logfs::LoggingFileSystem};
+    use crate::passthrough::{PassthroughFs, config::Config, newlogfs::LoggingFileSystem};
 
     #[tokio::test]
     #[ignore]
@@ -903,7 +910,7 @@ mod tests {
         let cfg = Config {
             xattr: false,
             do_import: true,
-            root_dir: String::from("/home/luxian/code/leetcode"),
+            root_dir: String::from("/home/luxian/github/buck2-rust-third-party"),
             ..Default::default()
         };
 

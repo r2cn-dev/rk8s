@@ -130,21 +130,19 @@ pub trait Layer: Filesystem {
             match self.getxattr(ctx, inode, cname, attr_size).await {
                 Ok(v) => {
                     // xattr name exists and we get value.
-                    if let ReplyXAttr::Data(bufs) = v {
-                        if bufs.len() == 1 && bufs[0].eq_ignore_ascii_case(&b'y') {
+                    if let ReplyXAttr::Data(bufs) = v
+                        && bufs.len() == 1 && bufs[0].eq_ignore_ascii_case(&b'y') {
                             return Ok(true);
                         }
-                    }
                     // No value found, go on to next check.
                     Ok(false)
                 }
                 Err(e) => {
                     let ioerror: std::io::Error = e.into();
-                    if let Some(raw_error) = ioerror.raw_os_error() {
-                        if raw_error == libc::ENODATA {
+                    if let Some(raw_error) = ioerror.raw_os_error()
+                        && raw_error == libc::ENODATA {
                             return Ok(false);
                         }
-                    }
                     Err(e)
                 }
             }
@@ -218,10 +216,10 @@ mod test {
             .await
             .unwrap();
 
-        print!("{:?}", res);
+        print!("{res:?}");
         let res = fs.delete_whiteout(Request::default(), 1, white_name).await;
         if res.is_err() {
-            panic!("{:?}", res);
+            panic!("{res:?}");
         }
         let _ = fs.destroy(Request::default()).await;
     }

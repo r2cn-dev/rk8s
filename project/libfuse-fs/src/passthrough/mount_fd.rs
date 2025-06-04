@@ -477,14 +477,14 @@ mod tests {
 
     #[test]
     fn test_mpr_error() {
-        let io_error = io::Error::new(io::ErrorKind::Other, "test");
+        let io_error = io::Error::other("test");
         let mpr_error = MPRError::from(io_error);
 
         assert!(!mpr_error.silent);
         assert!(mpr_error.fs_mount_id.is_none());
         assert!(mpr_error.fs_mount_root.is_none());
         let mpr_error = mpr_error.silence();
-        let msg = format!("{}", mpr_error);
+        let msg = format!("{mpr_error}");
         assert!(!msg.is_empty());
         assert!(mpr_error.silent());
     }

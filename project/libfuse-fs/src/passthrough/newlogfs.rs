@@ -24,19 +24,19 @@ impl<FS: Filesystem> LoggingFileSystem<FS> {
     }
 }
 impl<FS: Filesystem> LoggingFileSystem<FS> {
-    fn log_start(&self, id: &Uuid, method: &str, args: &[(&str, String)]) {
+    fn log_start(&self, req: &Request, id: &Uuid, method: &str, args: &[(&str, String)]) {
         let args_str = args
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join(", ");
-        println!("ID:{}|[{}] - Call: {}", id, method, args_str);
+        println!("ID:{id}|[{method}] REQ{req:?}-  - Call: {args_str}");
     }
 
     fn log_result(&self, id: &Uuid, method: &str, result: &Result<impl std::fmt::Debug>) {
         match result {
-            Ok(res) => println!("ID:{} [{}] - Success: {:?}", id, method, res),
-            Err(e) => println!("ID:{} [{}] - Error: {:?}", id, method, e),
+            Ok(res) => println!("ID:{id} [{method}] - Success: {res:?}"),
+            Err(e) => println!("ID:{id} [{method}] - Error: {e:?}"),
         }
     }
 }
@@ -54,7 +54,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
     async fn init(&self, req: Request) -> Result<ReplyInit> {
         let uuid = Uuid::new_v4();
         let method = "init";
-        self.log_start(&uuid, method, &[]);
+        self.log_start(&req, &uuid, method, &[]);
         let result = self.inner.init(req).await;
         self.log_result(&uuid, method, &result);
         result
@@ -63,7 +63,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
     async fn destroy(&self, req: Request) {
         let uuid = Uuid::new_v4();
         let method = "destroy";
-        self.log_start(&uuid, method, &[]);
+        self.log_start(&req, &uuid, method, &[]);
         self.inner.destroy(req).await;
         println!("ID:{} [{}] {} - Completed", uuid, self.fsname, method);
     }
@@ -75,7 +75,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("parent", parent.to_string()),
             ("name", name.to_string_lossy().into_owned()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.lookup(req, parent, name).await;
         self.log_result(&uuid, method, &result);
         result
@@ -88,7 +88,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("inode", inode.to_string()),
             ("nlookup", nlookup.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         self.inner.forget(req, inode, nlookup).await;
         println!("ID:{} [{}] {} - Completed", uuid, self.fsname, method);
     }
@@ -107,7 +107,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("fh", fh.map(|v| v.to_string()).unwrap_or_default()),
             ("flags", flags.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.getattr(req, inode, fh, flags).await;
         self.log_result(&uuid, method, &result);
         result
@@ -125,9 +125,9 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let args = vec![
             ("inode", inode.to_string()),
             ("fh", fh.map(|v| v.to_string()).unwrap_or_default()),
-            ("set_attr", format!("{:?}", set_attr)),
+            ("set_attr", format!("{set_attr:?}")),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.setattr(req, inode, fh, set_attr).await;
         self.log_result(&uuid, method, &result);
         result
@@ -149,7 +149,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("offset", offset.to_string()),
             ("lock_owner", lock_owner.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .readdirplus(req, parent, fh, offset, lock_owner)
@@ -162,7 +162,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "opendir";
         let args = vec![("inode", inode.to_string()), ("flags", flags.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.opendir(req, inode, flags).await;
         if let Ok(ref reply) = result {
             println!(
@@ -188,7 +188,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("fh", fh.to_string()),
             ("offset", offset.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.readdir(req, parent, fh, offset).await;
         self.log_result(&uuid, method, &Ok("".to_string()));
         result
@@ -210,7 +210,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("offset", offset.to_string()),
             ("size", size.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.read(req, inode, fh, offset, size).await;
         if let Ok(ref data) = result {
             println!(
@@ -221,7 +221,8 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
                 data.data.len()
             );
         }
-        self.log_result(&uuid, method, &result);
+
+        //self.log_result(&uuid, method, &result);
         result
     }
 
@@ -245,7 +246,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("write_flags", write_flags.to_string()),
             ("flags", flags.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .write(req, inode, fh, offset, data, write_flags, flags)
@@ -268,7 +269,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("fh", fh.to_string()),
             ("datasync", datasync.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.fsync(req, inode, fh, datasync).await;
         self.log_result(&uuid, method, &result);
         result
@@ -292,7 +293,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("flags", flags.to_string()),
             ("position", position.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .setxattr(req, inode, name, value, flags, position)
@@ -319,7 +320,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("new_name", new_name.to_string_lossy().into_owned()),
             ("flags", flags.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .rename2(req, parent, name, new_parent, new_name, flags)
@@ -334,7 +335,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("parent", parent.to_string()),
             ("name", name.to_string_lossy().into_owned()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let re = self.inner.unlink(req, parent, name).await;
         self.log_result(&uuid, method, &re);
         re
@@ -355,7 +356,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("mode", mode.to_string()),
             ("umask", umask.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let re = self.inner.mkdir(req, parent, name, mode, umask).await;
         self.log_result(&uuid, method, &re);
         re
@@ -364,7 +365,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "access";
         let args = vec![("inode", inode.to_string()), ("mask", mask.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.access(req, inode, mask).await;
         self.log_result(&uuid, method, &result);
         result
@@ -383,7 +384,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("name", name.to_string_lossy().into_owned()),
             ("size", size.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.getxattr(req, inode, name, size).await;
         self.log_result(&uuid, method, &result);
         result
@@ -404,7 +405,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("mode", mode.to_string()),
             ("flags", flags.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.create(req, parent, name, mode, flags).await;
         self.log_result(&uuid, method, &result);
         result
@@ -425,7 +426,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("offset", offset.to_string()),
             ("whence", whence.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.lseek(req, inode, fh, offset, whence).await;
         self.log_result(&uuid, method, &result);
         result
@@ -447,7 +448,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("mode", mode.to_string()),
             ("rdev", rdev.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.mknod(req, parent, name, mode, rdev).await;
         self.log_result(&uuid, method, &result);
         result
@@ -469,7 +470,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("new_parent", new_parent.to_string()),
             ("new_name", new_name.to_string_lossy().into_owned()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .rename(req, parent, name, new_parent, new_name)
@@ -481,7 +482,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "listxattr";
         let args = vec![("inode", inode.to_string()), ("size", size.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.listxattr(req, inode, size).await;
         self.log_result(&uuid, method, &result);
         result
@@ -491,7 +492,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "open";
         let args = vec![("inode", inode.to_string()), ("flags", flags.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.open(req, inode, flags).await;
         if let Ok(ref reply) = result {
             println!(
@@ -510,7 +511,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("parent", parent.to_string()),
             ("name", name.to_string_lossy().into_owned()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.rmdir(req, parent, name).await;
         self.log_result(&uuid, method, &result);
         result
@@ -520,7 +521,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "statfs";
         let args = vec![("inode", inode.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.statfs(req, inode).await;
         self.log_result(&uuid, method, &result);
         result
@@ -540,7 +541,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("new_parent", new_parent.to_string()),
             ("new_name", new_name.to_string_lossy().into_owned()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.link(req, inode, new_parent, new_name).await;
         self.log_result(&uuid, method, &result);
         result
@@ -560,23 +561,23 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("name", name.to_string_lossy().into_owned()),
             ("link", link.to_string_lossy().into_owned()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.symlink(req, parent, name, link).await;
         self.log_result(&uuid, method, &result);
         result
     }
-    async fn batch_forget(&self, req: Request, inodes: &[fuse3::Inode]) {
+    async fn batch_forget(&self, req: Request, inodes: &[(Inode, u64)]) {
         let uuid = Uuid::new_v4();
         let method = "batch_forget";
         let args = vec![(
             "inodes",
             inodes
                 .iter()
-                .map(|inode| inode.to_string())
+                .map(|inode| inode.0.to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
         )];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         self.inner.batch_forget(req, inodes).await;
         self.log_result(&uuid, method, &Ok("".to_string()));
     }
@@ -594,7 +595,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("blocksize", blocksize.to_string()),
             ("idx", idx.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.bmap(req, inode, blocksize, idx).await;
         self.log_result(&uuid, method, &result);
         result
@@ -623,7 +624,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("length", length.to_string()),
             ("flags", flags.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .copy_file_range(
@@ -652,7 +653,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("length", length.to_string()),
             ("mode", mode.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .fallocate(req, inode, fh, offset, length, mode)
@@ -675,7 +676,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("fh", fh.to_string()),
             ("lock_owner", lock_owner.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.flush(req, inode, fh, lock_owner).await;
         self.log_result(&uuid, method, &result);
         result
@@ -695,7 +696,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("fh", fh.to_string()),
             ("datasync", datasync.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.fsyncdir(req, inode, fh, datasync).await;
         self.log_result(&uuid, method, &result);
         result
@@ -707,7 +708,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
     //     let args = vec![
     //         ("unique", unique.to_string())
     //     ];
-    //     self.log_start(&uuid, method, &args);
+    //     self.log_start(&req,&uuid, method, &args);
     //     let result = self.inner.interrupt(req, unique).await;
     //     self.log_result(&uuid, method, &result);
     //     result
@@ -723,7 +724,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "notify_reply";
         let args = vec![("inode", inode.to_string()), ("offset", offset.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.notify_reply(req, inode, offset, data).await;
         self.log_result(&uuid, method, &result);
         result
@@ -747,7 +748,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("flags", flags.to_string()),
             ("events", events.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .poll(req, inode, fh, kh, flags, events, notify)
@@ -760,7 +761,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
         let uuid = Uuid::new_v4();
         let method = "readlink";
         let args = vec![("inode", inode.to_string())];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.readlink(req, inode).await;
         self.log_result(&uuid, method, &result);
         result
@@ -784,7 +785,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("lock_owner", lock_owner.to_string()),
             ("flush", flush.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self
             .inner
             .release(req, inode, fh, flags, lock_owner, flush)
@@ -807,7 +808,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("fh", fh.to_string()),
             ("flags", flags.to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.releasedir(req, inode, fh, flags).await;
         self.log_result(&uuid, method, &result);
         result
@@ -820,7 +821,7 @@ impl<FS: fuse3::raw::Filesystem + std::marker::Sync> Filesystem for LoggingFileS
             ("inode", inode.to_string()),
             ("name", name.to_string_lossy().to_string()),
         ];
-        self.log_start(&uuid, method, &args);
+        self.log_start(&req, &uuid, method, &args);
         let result = self.inner.removexattr(req, inode, name).await;
         self.log_result(&uuid, method, &result);
         result
