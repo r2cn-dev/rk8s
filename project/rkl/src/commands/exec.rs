@@ -1,10 +1,32 @@
 use std::path::PathBuf;
 
-use super::exec_cli::Exec;
 use anyhow::Result;
 use libcontainer::container::builder::ContainerBuilder;
 use libcontainer::syscall::syscall::SyscallType;
 use nix::sys::wait::{WaitStatus, waitpid};
+
+#[derive(Debug, Clone)]
+pub struct Exec {
+    pub pod_name: Option<String>,
+    pub container_id: String,
+    pub command: Vec<String>,
+    pub console_socket: Option<PathBuf>,
+    pub cwd: Option<PathBuf>,
+    pub env: Vec<(String, String)>,
+    pub tty: bool,
+    pub user: Option<(u32, Option<u32>)>,
+    pub additional_gids: Vec<u32>,
+    pub process: Option<PathBuf>,
+    pub detach: bool,
+    pub pid_file: Option<PathBuf>,
+    pub process_label: Option<String>,
+    pub apparmor: Option<String>,
+    pub no_new_privs: bool,
+    pub cap: Vec<String>,
+    pub preserve_fds: i32,
+    pub ignore_paused: bool,
+    pub cgroup: Option<String>,
+}
 
 pub fn exec(args: Exec, root_path: PathBuf) -> Result<i32> {
     let pid = ContainerBuilder::new(args.container_id.clone(), SyscallType::default())

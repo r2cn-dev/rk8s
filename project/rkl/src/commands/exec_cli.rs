@@ -3,14 +3,16 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::commands::exec::Exec;
+
 /// Execute a process within an existing container
 /// Reference: https://github.com/opencontainers/runc/blob/main/man/runc-exec.8.md
 #[derive(Parser, Debug, Clone)]
-pub struct Exec {
-    /// Pod name
-    #[arg(value_name = "POD_NAME")]
-    #[clap(required = true)]
-    pub pod_name: String,
+pub struct ExecBase {
+    // /// Pod name
+    // #[arg(value_name = "POD_NAME")]
+    // #[clap(required = true)]
+    // pub pod_name: String,
     /// Unix socket (file) path , which will receive file descriptor of the writing end of the pseudoterminal
     #[clap(long)]
     pub console_socket: Option<PathBuf>,
@@ -58,14 +60,99 @@ pub struct Exec {
     /// Execute a process in a sub-cgroup
     #[clap(long)]
     pub cgroup: Option<String>,
+    // /// Identifier of the container
+    // #[clap(value_parser = clap::builder::NonEmptyStringValueParser::new(), required = true)]
+    // pub container_id: String,
 
-    /// Identifier of the container
+    // /// Command that should be executed in the container
+    // #[clap(required = false)]
+    // pub command: Vec<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct ExecContainer {
+    #[arg(value_name = "CONTAINER_ID")]
     #[clap(value_parser = clap::builder::NonEmptyStringValueParser::new(), required = true)]
     pub container_id: String,
 
     /// Command that should be executed in the container
     #[clap(required = false)]
     pub command: Vec<String>,
+
+    #[clap(flatten)]
+    pub base: ExecBase,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct ExecPod {
+    /// Pod name
+    #[arg(value_name = "POD_NAME")]
+    #[clap(required = true)]
+    pub pod_name: String,
+
+    #[arg(value_name = "CONTAINER_ID")]
+    #[clap(value_parser = clap::builder::NonEmptyStringValueParser::new(), required = true)]
+    pub container_id: String,
+
+    /// Command that should be executed in the container
+    #[clap(required = false)]
+    pub command: Vec<String>,
+
+    #[clap(flatten)]
+    pub base: ExecBase,
+}
+
+// Support both pod and container
+impl From<ExecPod> for Exec {
+    fn from(cli: ExecPod) -> Self {
+        Exec {
+            pod_name: Some(cli.pod_name),
+            container_id: cli.container_id,
+            command: cli.command,
+            console_socket: cli.base.console_socket,
+            cwd: cli.base.cwd,
+            env: cli.base.env,
+            tty: cli.base.tty,
+            user: cli.base.user,
+            additional_gids: cli.base.additional_gids,
+            process: cli.base.process,
+            detach: cli.base.detach,
+            pid_file: cli.base.pid_file,
+            process_label: cli.base.process_label,
+            apparmor: cli.base.apparmor,
+            no_new_privs: cli.base.no_new_privs,
+            cap: cli.base.cap,
+            preserve_fds: cli.base.preserve_fds,
+            ignore_paused: cli.base.ignore_paused,
+            cgroup: cli.base.cgroup,
+        }
+    }
+}
+
+impl From<ExecContainer> for Exec {
+    fn from(cli: ExecContainer) -> Self {
+        Exec {
+            pod_name: None,
+            container_id: cli.container_id,
+            command: cli.command,
+            console_socket: cli.base.console_socket,
+            cwd: cli.base.cwd,
+            env: cli.base.env,
+            tty: cli.base.tty,
+            user: cli.base.user,
+            additional_gids: cli.base.additional_gids,
+            process: cli.base.process,
+            detach: cli.base.detach,
+            pid_file: cli.base.pid_file,
+            process_label: cli.base.process_label,
+            apparmor: cli.base.apparmor,
+            no_new_privs: cli.base.no_new_privs,
+            cap: cli.base.cap,
+            preserve_fds: cli.base.preserve_fds,
+            ignore_paused: cli.base.ignore_paused,
+            cgroup: cli.base.cgroup,
+        }
+    }
 }
 
 fn parse_env<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>

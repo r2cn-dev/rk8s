@@ -9,6 +9,7 @@ pub mod delete;
 pub mod exec;
 pub mod exec_cli;
 pub mod kill;
+pub mod list;
 pub mod start;
 pub mod state;
 
@@ -26,7 +27,7 @@ fn construct_container_root<P: AsRef<Path>>(root_path: P, container_id: &str) ->
 }
 
 pub fn load_container<P: AsRef<Path>>(root_path: P, container_id: &str) -> Result<Container> {
-    let container_root = construct_container_root(root_path, container_id)?;
+    let container_root = construct_container_root(root_path.as_ref(), container_id)?;
     if !container_root.exists() {
         bail!("container {} does not exist.", container_id)
     }
@@ -36,6 +37,6 @@ pub fn load_container<P: AsRef<Path>>(root_path: P, container_id: &str) -> Resul
 }
 
 fn container_exists<P: AsRef<Path>>(root_path: P, container_id: &str) -> Result<bool> {
-    let container_root = construct_container_root(root_path, container_id)?;
+    let container_root = construct_container_root(root_path.as_ref(), container_id)?;
     Ok(container_root.exists())
 }

@@ -683,7 +683,7 @@ impl TaskRunner {
 }
 
 // only support limit config now.
-fn get_linux_container_config(
+pub fn get_linux_container_config(
     res: Option<ContainerRes>,
 ) -> Result<Option<LinuxContainerConfig>, anyhow::Error> {
     if let Some(limits) = res.and_then(|r| r.limits) {
@@ -778,7 +778,7 @@ pub fn get_cni() -> Result<Libcni, anyhow::Error> {
     Ok(cni)
 }
 
-fn add_cap_net_raw(capabilities: &mut LinuxCapabilities) {
+pub fn add_cap_net_raw(capabilities: &mut LinuxCapabilities) {
     let mut bounding = capabilities.bounding().clone().unwrap();
     bounding.insert(Capability::NetRaw);
     capabilities.set_bounding(Some(bounding));

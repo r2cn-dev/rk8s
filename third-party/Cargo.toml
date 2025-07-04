@@ -16,14 +16,14 @@ path = "top/main.rs"
 # and all options Cargo supports.
 [dependencies]
 anyhow = "1.0.97"
-async-fs = { version = "2.1.1"}
+async-fs = { version = "2.1.1" }
 async-std = "1.12"
 async-trait = "0.1.86"
 async-global-executor = { version = "2.4.1" }
 async-lock = { version = "3.3.0" }
 async-notify = "0.3"
-async-io = { version = "2.3.1"}
-async-process = { version = "2.1.0"}
+async-io = { version = "2.3.1" }
+async-process = { version = "2.1.0" }
 axum = "0.8.1"
 bitflags = "2.9.0"
 bincode = "1.3.3"
@@ -87,7 +87,7 @@ regex = { version = "1.10.6", default-features = false, features = [
     "unicode-perl",
 ] }
 reqwest = { version = "0.12.7", features = ["json", "blocking"] }
-rtnetlink =  "0.16.0"
+rtnetlink = "0.16.0"
 rust-criu = "0.4.0"
 rust-cni = "0.1.2"
 safe-path = "0.1.0"
@@ -116,8 +116,9 @@ uuid = { version = "1.15.1", features = [
 vm-memory = "0.16.1"
 vmm-sys-util = "0.12.1"
 walkdir = "2.3"
-daemonize = "0.5.0" 
+daemonize = "0.5.0"
 which = { version = "4.4.2" }
+tabwriter = "1.4.1"
 
 
 # Local patches - typically git references

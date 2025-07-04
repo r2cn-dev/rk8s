@@ -1,7 +1,8 @@
+use crate::commands::exec::Exec;
 use crate::commands::{delete, exec, exec_cli, load_container, start, state};
-use crate::daemon;
 use crate::rootpath;
 use crate::task::{self, TaskRunner};
+use crate::{PodCommand, daemon};
 use anyhow::{Result, anyhow};
 use daemonize::Daemonize;
 use liboci_cli::{Delete, Start, State};
@@ -269,12 +270,13 @@ pub fn state_pod(pod_name: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-pub fn exec_pod(args: exec_cli::Exec) -> Result<i32> {
+pub fn exec_pod(args: exec_cli::ExecPod) -> Result<i32> {
     let root_path = rootpath::determine(None)?;
     let pod_info_path = root_path.join("pods").join(&args.pod_name);
     if !pod_info_path.exists() {
         return Err(anyhow::anyhow!("Pod {} not found", args.pod_name));
     }
+    let args = Exec::from(args);
     let exit_code = exec::exec(args, root_path)?;
     Ok(exit_code)
 }
@@ -305,4 +307,19 @@ pub fn start_daemon() -> Result<(), anyhow::Error> {
     #[cfg(not(debug_assertions))]
     set_daemonize()?;
     daemon::main()
+}
+
+pub fn pod_execute(cmd: PodCommand) -> Result<()> {
+    match cmd {
+        PodCommand::Run { pod_yaml } => run_pod(&pod_yaml),
+        PodCommand::Create { pod_yaml } => create_pod(&pod_yaml),
+        PodCommand::Start { pod_name } => start_pod(&pod_name),
+        PodCommand::Delete { pod_name } => delete_pod(&pod_name),
+        PodCommand::State { pod_name } => state_pod(&pod_name),
+        PodCommand::Exec(exec) => {
+            let exit_code = exec_pod(*exec)?;
+            std::process::exit(exit_code);
+        }
+        PodCommand::Daemon => start_daemon(),
+    }
 }

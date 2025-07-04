@@ -1,62 +1,50 @@
 use clap::{Parser, Subcommand};
-use rkl::cli_commands;
+use rkl::{
+    ComposeCommand, ContainerCommand, PodCommand,
+    cli_commands::{compose_execute, container_execute, pod_execute},
+};
 
 #[derive(Parser)]
 #[command(name = "rkl")]
-#[command(about = "A simple container runtime", long_about = None)]
+#[command(
+    about = "A simple container runtime", 
+    long_about = None,
+    override_usage = "rkl <workload> <command> [OPTIONS]",
+)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    workload: Workload,
 }
 
-#[derive(Subcommand)]
-enum Commands {
-    #[command(about = "Run a pod from a YAML file using ./rkl run pod.yaml")]
-    Run {
-        #[arg(value_name = "POD_YAML")]
-        pod_yaml: String,
-    },
-    #[command(about = "Create a pod from a YAML file using ./rkl create pod.yaml")]
-    Create {
-        #[arg(value_name = "POD_YAML")]
-        pod_yaml: String,
-    },
-    #[command(about = "Start a pod with a pod-name using ./rkl start pod-name")]
-    Start {
-        #[arg(value_name = "POD_NAME")]
-        pod_name: String,
-    },
+impl Cli {
+    pub fn run(self) -> Result<(), anyhow::Error> {
+        match self.workload {
+            Workload::Pod(cmd) => pod_execute(cmd),
+            Workload::Container(cmd) => container_execute(cmd),
+            Workload::Compose(cmd) => compose_execute(cmd),
+        }
+    }
+}
 
-    #[command(about = "Delete a pod with a pod-name using ./rkl delete pod-name")]
-    Delete {
-        #[arg(value_name = "POD_NAME")]
-        pod_name: String,
-    },
-    #[command(about = "Get the state of a pod using ./rkl state pod-name")]
-    State {
-        #[arg(value_name = "POD_NAME")]
-        pod_name: String,
-    },
-    Exec(Box<rkl::commands::exec_cli::Exec>),
-    // Run as a daemon process.
-    // For convenient, I won't remove cli part now.
-    Daemon,
+/// define the 3 state for the run command "container" "pod" "compose"
+#[derive(Subcommand)]
+enum Workload {
+    #[command(subcommand, about = "Operations related to pods", alias = "p")]
+    Pod(PodCommand),
+
+    #[command(subcommand, about = "Manage standalone containers", alias = "c")]
+    Container(ContainerCommand),
+
+    #[command(
+        subcommand,
+        about = "Manage multi-container apps using Compose",
+        alias = "C"
+    )]
+    Compose(ComposeCommand),
 }
 
 fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
-
-    match cli.command {
-        Commands::Run { pod_yaml } => cli_commands::run_pod(&pod_yaml),
-        Commands::Create { pod_yaml } => cli_commands::create_pod(&pod_yaml),
-        Commands::Start { pod_name } => cli_commands::start_pod(&pod_name),
-        Commands::Delete { pod_name } => cli_commands::delete_pod(&pod_name),
-        Commands::State { pod_name } => cli_commands::state_pod(&pod_name),
-        Commands::Exec(exec) => {
-            let exit_code = cli_commands::exec_pod(*exec)?;
-            std::process::exit(exit_code);
-        }
-        Commands::Daemon => cli_commands::start_daemon(),
-    }
+    cli.run()
 }

@@ -12,8 +12,8 @@ name = "rkl"
 path = "src/main.rs"
 
 [dependencies]
-libcgroups = { path = "../libcgroups", version = "0.5.1" } 
-libcontainer = { path = "../libcontainer", version = "0.5.1" } 
+libcgroups = { path = "../libcgroups", version = "0.5.1" }
+libcontainer = { path = "../libcontainer", version = "0.5.1" }
 clap = { version = "4.5", features = ["derive"] }
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
@@ -41,6 +41,8 @@ sha256 = "1.6.0"
 futures = "0.3.31"
 daemonize = "0.5.0"
 axum = "0.8.4"
+chrono = "0.4"
+tabwriter = "1.4.1"
 
 [dev-dependencies]
 tempfile = "3"
