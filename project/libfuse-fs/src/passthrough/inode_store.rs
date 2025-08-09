@@ -8,7 +8,7 @@ use super::file_handle::FileHandle;
 use super::statx::StatExt;
 use super::{Inode, InodeData, InodeHandle};
 
-#[derive(Clone, Copy, Default, PartialOrd, Ord, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialOrd, Ord, PartialEq, Eq, Debug, Hash)]
 /// Identify an inode in `PassthroughFs` by `InodeId`.
 pub struct InodeId {
     pub ino: libc::ino64_t,

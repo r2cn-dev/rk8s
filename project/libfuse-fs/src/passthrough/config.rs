@@ -127,18 +127,6 @@ pub struct Config {
     /// The default value for this option is `false`.
     pub killpriv_v2: bool,
 
-    /// Whether to use file handles to reference inodes.  We need to be able to open file
-    /// descriptors for arbitrary inodes, and by default that is done by storing an `O_PATH` FD in
-    /// `InodeData`.  Not least because there is a maximum number of FDs a process can have open
-    /// users may find it preferable to store a file handle instead, which we can use to open an FD
-    /// when necessary.
-    /// So this switch allows to choose between the alternatives: When set to `false`, `InodeData`
-    /// will store `O_PATH` FDs.  Otherwise, we will attempt to generate and store a file handle
-    /// instead.
-    ///
-    /// The default is `false`.
-    pub inode_file_handles: bool,
-
     /// Control whether readdir/readdirplus requests return zero dirent to client, as if the
     /// directory is empty even if it has children.
     pub no_readdir: bool,
@@ -196,7 +184,6 @@ impl Default for Config {
             no_open: false,
             no_opendir: false,
             killpriv_v2: false,
-            inode_file_handles: false,
             no_readdir: false,
             seal_size: false,
             enable_mntid: false,
