@@ -1,8 +1,8 @@
-use std::{collections::HashMap, env};
-
 use rkl::task::{ContainerSpec, ObjectMeta, PodSpec, PodTask, Port};
+use std::collections::HashMap;
+use std::env;
 
-fn bundles_path(name: &str) -> String {
+pub fn bundles_path(name: &str) -> String {
     let root_dir = env::current_dir().unwrap();
     root_dir
         .parent()
@@ -14,6 +14,7 @@ fn bundles_path(name: &str) -> String {
         .to_string()
 }
 
+#[allow(dead_code)]
 pub fn get_pod_config<T, S>(args: Vec<S>, name: T) -> PodTask
 where
     T: Into<String>,

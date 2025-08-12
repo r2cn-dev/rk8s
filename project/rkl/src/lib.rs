@@ -22,33 +22,33 @@ pub enum ComposeCommand {
 #[derive(Args)]
 pub struct PsArgs {
     // /// specify the compose application's name, default is the cwd
-    // #[arg(long = "project-name", short, value_name = "PROJECT_NAME")]
-    // project_name: Option<String>,
-    /// specify the target compose_yml path
+    #[arg(long = "project-name", short, value_name = "PROJECT_NAME")]
+    pub project_name: Option<String>,
+    //  specify the target compose_yml path
     #[arg(short = 'f', value_name = "COMPOSE_YAML")]
-    compose_yaml: Option<String>,
+    pub compose_yaml: Option<String>,
 }
 
 #[derive(Args)]
 pub struct DownArgs {
     /// specify the compose application's name, default is the cwd
     #[arg(long = "project-name", short, value_name = "PROJECT_NAME")]
-    project_name: Option<String>,
+    pub project_name: Option<String>,
 
     /// specify the compose application's name, default is the cwd
     #[arg(short = 'f', value_name = "COMPOSE_YAML")]
-    compose_yaml: Option<String>,
+    pub compose_yaml: Option<String>,
 }
 
 #[derive(Args)]
 pub struct UpArgs {
     /// the compose.yaml's path, default under the cwd dir
     #[arg(value_name = "COMPOSE_YAML")]
-    compose_yaml: Option<String>,
+    pub compose_yaml: Option<String>,
 
     /// specify the compose application's name, default is the cwd
     #[arg(long = "project-name", value_name = "PROJECT_NAME")]
-    project_name: Option<String>,
+    pub project_name: Option<String>,
 }
 
 #[derive(Subcommand)]

@@ -1,3 +1,5 @@
+use rkl::daemon::{static_pods, sync_loop::SyncLoop};
+use serial_test::serial;
 use std::{
     fs::File,
     io::Write,
@@ -5,10 +7,9 @@ use std::{
     time::Duration,
 };
 
-use rkl::daemon::{static_pods, sync_loop::SyncLoop};
+use crate::common::get_pod_config;
+
 mod common;
-use common::*;
-use serial_test::serial;
 
 #[tokio::test]
 #[serial]

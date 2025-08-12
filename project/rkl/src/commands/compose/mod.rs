@@ -225,7 +225,10 @@ impl ComposeManager {
     }
 
     fn ps(&self, ps_args: PsArgs) -> Result<()> {
-        let PsArgs { compose_yaml } = ps_args;
+        let PsArgs {
+            compose_yaml,
+            project_name,
+        } = ps_args;
         let list_arg = List {
             format: "".to_string(),
             quiet: false,
@@ -238,6 +241,8 @@ impl ComposeManager {
                 Some(name) => self.get_root_path_by_name(name)?,
                 None => return Err(anyhow!("Invalid Compose Spec (no project name is set)")),
             }
+        } else if let Some(name) = project_name {
+            self.get_root_path_by_name(name)?
         } else {
             self.root_path.clone()
         };
@@ -394,7 +399,10 @@ pub fn compose_execute(command: ComposeCommand) -> Result<()> {
             let name = down_args.project_name.clone();
             (name, Box::new(move |manager| manager.down(down_args)))
         }
-        ComposeCommand::Ps(ps_args) => (None, Box::new(move |manager| manager.ps(ps_args))),
+        ComposeCommand::Ps(ps_args) => {
+            let name = ps_args.project_name.clone();
+            (name, Box::new(move |manager| manager.ps(ps_args)))
+        }
     };
 
     let mut manager = get_manager_from_name(project_name)?;
