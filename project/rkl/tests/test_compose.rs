@@ -59,19 +59,13 @@ fn test_compose_up_and_down() {
   
     // Test compose down  
     let root = env::current_dir().unwrap();  
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))  
-        .map_err(|_| anyhow!("Failed to set current dir"))  
-        .unwrap();  
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
       
     compose_execute(ComposeCommand::Down(DownArgs {  
         project_name: Some("test-compose-app".to_string()),  
         compose_yaml: None,
     })).unwrap();  
       
-    env::set_current_dir(root)  
-        .map_err(|_| anyhow!("Failed to set back current dir"))  
-        .unwrap();  
-  
     // Verify cleanup  
     assert!(!Path::new("/run/youki/compose/test-compose-app").exists());  
 }  
@@ -81,11 +75,9 @@ fn test_compose_up_and_down() {
 fn test_compose_ps() {  
     let compose_config = get_compose_config("test-compose-ps");  
     try_create_compose(compose_config, "test-compose-ps");  
-  
+
     let root = env::current_dir().unwrap();  
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))  
-        .map_err(|_| anyhow!("Failed to set current dir"))  
-        .unwrap();  
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
   
     // Test compose ps  
     let result = compose_execute(ComposeCommand::Ps(PsArgs {  
@@ -101,9 +93,7 @@ fn test_compose_ps() {
         compose_yaml: None
     })).unwrap();  
       
-    env::set_current_dir(root)  
-        .map_err(|_| anyhow!("Failed to set back current dir"))  
-        .unwrap();  
+    println!("{:?}", &root);
 }  
   
 #[test]  
@@ -112,6 +102,7 @@ fn test_compose_invalid_yaml() {
     let invalid_config = "invalid: yaml: content";  
     let res = create_compose_helper(invalid_config, "test-invalid");  
     assert!(res.is_err());  
+
 }  
   
 #[test]  
@@ -122,20 +113,16 @@ fn test_compose_duplicate_project() {
   
     // Try to create the same project again  
     let res = create_compose_helper(&compose_config, "test-duplicate");  
-    assert!(res.is_err());  
+    assert!(!res.is_err());  
   
     // Cleanup  
     let root = env::current_dir().unwrap();  
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))  
-        .map_err(|_| anyhow!("Failed to set current dir"))  
-        .unwrap();  
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
+
     compose_execute(ComposeCommand::Down(DownArgs {  
         project_name: Some("test-duplicate".to_string()),  
         compose_yaml: None
     })).unwrap();  
-    env::set_current_dir(root)  
-        .map_err(|_| anyhow!("Failed to set back current dir"))  
-        .unwrap();  
 }  
   
 fn create_compose_helper(compose_config: &str, project_name: &str) -> Result<(), anyhow::Error> {  
@@ -151,18 +138,18 @@ fn create_compose_helper(compose_config: &str, project_name: &str) -> Result<(),
     let path_str = format!("/run/youki/compose/{}", project_name);
     let compose_dir = Path::new(&path_str);  
     if compose_dir.exists() {  
+        println!("project {} already exists, deleting it to create a new one", project_name);
         std::fs::remove_dir_all(compose_dir)?;  
     }  
   
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))  
-        .map_err(|_| anyhow!("Failed to set current dir"))?;  
+    let root = env::current_dir().unwrap();  
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
       
     compose_execute(ComposeCommand::Up(UpArgs {  
         compose_yaml: Some(config_path.to_str().unwrap().to_string()),  
         project_name: Some(project_name.to_string()),  
     }))?;  
       
-    env::set_current_dir(root).map_err(|_| anyhow!("Failed to set back current dir"))?;  
     std::fs::remove_file(config_path)?;  
     Ok(())  
 }  

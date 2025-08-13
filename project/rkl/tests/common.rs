@@ -1,6 +1,8 @@
+use anyhow::{Ok, Result};
 use rkl::task::{ContainerSpec, ObjectMeta, PodSpec, PodTask, Port};
 use std::collections::HashMap;
 use std::env;
+use std::path::{Path, PathBuf};
 
 pub fn bundles_path(name: &str) -> String {
     let root_dir = env::current_dir().unwrap();
@@ -49,5 +51,24 @@ where
             }],
             init_containers: vec![],
         },
+    }
+}
+
+pub struct DirGuard {
+    pub original: PathBuf,
+}
+
+#[allow(dead_code)]
+impl DirGuard {
+    pub fn change_to<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let original = env::current_dir()?;
+        env::set_current_dir(path)?;
+        Ok(Self { original })
+    }
+}
+
+impl Drop for DirGuard {
+    fn drop(&mut self) {
+        let _ = env::set_current_dir(&self.original);
     }
 }

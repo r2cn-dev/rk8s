@@ -44,9 +44,7 @@ fn test_container_create_start_and_delete() {
     assert_eq!(container_state["status"], "created");
 
     let root = env::current_dir().unwrap();
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))
-        .map_err(|_| anyhow!("Failed to set current dir"))
-        .unwrap();
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
     start_container("test-container").unwrap();
 
     let container_state = std::fs::read_to_string("/run/youki/test-container/state.json").unwrap();
@@ -54,9 +52,6 @@ fn test_container_create_start_and_delete() {
     assert_eq!(container_state["status"], "running");
 
     delete_container("test-container").unwrap();
-    env::set_current_dir(root)
-        .map_err(|_| anyhow!("Failed to set back current dir"))
-        .unwrap();
 
     assert!(!Path::new("/run/youki/test-container").exists());
 }
@@ -142,14 +137,13 @@ fn create_container_helper(config: ContainerSpec, run: bool) -> Result<(), anyho
         std::fs::remove_dir_all(container_dir)?;
     }
 
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))
-        .map_err(|_| anyhow!("Failed to set current dir"))?;
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
+
     if !run {
         create_container(config_path.to_str().unwrap())?;
     } else {
         run_container(config_path.to_str().unwrap())?;
     }
-    env::set_current_dir(root).map_err(|_| anyhow!("Failed to set back current dir"))?;
     std::fs::remove_file(config_path)?;
     Ok(())
 }
@@ -171,11 +165,6 @@ fn try_create_container(config: ContainerSpec, run: bool) {
 
 fn delete_container_helper(container_name: &str) {
     let root = env::current_dir().unwrap();
-    env::set_current_dir(root.parent().unwrap().join("target/debug"))
-        .map_err(|_| anyhow!("Failed to set current dir"))
-        .unwrap();
+    let _dir_guard = DirGuard::change_to(root.parent().unwrap().join("target/debug")).unwrap();
     delete_container(container_name).unwrap();
-    env::set_current_dir(root)
-        .map_err(|_| anyhow!("Failed to set back current dir"))
-        .unwrap();
 }

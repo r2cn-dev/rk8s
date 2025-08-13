@@ -92,6 +92,14 @@ impl ContainerRunner {
         self.config_builder.mounts(mounts);
     }
 
+    pub fn create(&mut self) -> Result<()> {
+        // create container_config
+        self.build_config()?;
+
+        let _ = self.create_container()?;
+        Ok(())
+    }
+
     pub fn run(&mut self) -> Result<()> {
         // create container_config
         self.build_config()?;
@@ -440,7 +448,7 @@ pub fn exec_container(args: ExecContainer, root_path: Option<PathBuf>) -> Result
 
 pub fn create_container(path: &str) -> Result<()> {
     let mut runner = ContainerRunner::from_file(path)?;
-    runner.run()
+    runner.create()
 }
 
 pub fn print_status(container_id: String, root_path: PathBuf) -> Result<()> {
