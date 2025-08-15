@@ -426,14 +426,13 @@ services:
     volumes: 
       - ./tmp/mount/dir:/app/data
       - ./data:/app/data2
-
 volumes:
   
 "#
         .to_string()
     }
 
-    fn get_test_mutiple_service() -> String {
+    fn get_test_multiple_service() -> String {
         r#"
 services:
   backend:
@@ -449,6 +448,7 @@ services:
   frontend:
     container_name: front
     image: test/bundles/busybox
+    command: ["sleep", "300"]
     ports:
       - "80:80"
 networks: 
@@ -485,12 +485,9 @@ networks:
         let spec = mgr.read_spec(test_path.clone()).unwrap();
         assert_eq!(spec.name, Some("test_proj".to_string()));
         assert!(spec.services.contains_key("web"));
-        assert_eq!(spec.services["web"].image, "nginx:latest");
+        assert_eq!(spec.services["web"].image, "test/bundles/busybox/");
         assert_eq!(spec.services["web"].volumes[0], "./tmp/mount/dir:/app/data");
-        assert_eq!(
-            spec.services["web"].volumes[1],
-            "/home/erasernoob/project/libra-test/data:/app/data2"
-        );
+        assert_eq!(spec.services["web"].volumes[1], "./data:/app/data2");
     }
 
     #[tokio::test]
@@ -557,7 +554,7 @@ networks:
 
         fs::write(
             root_dir.path().join("compose.yml"),
-            get_test_mutiple_service(),
+            get_test_multiple_service(),
         )
         .unwrap();
         // cd to the current_dir's parent
