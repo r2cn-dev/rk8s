@@ -176,11 +176,21 @@ impl NetworkManager {
     fn validate(&mut self, spec: &ComposeSpec) -> Result<()> {
         for (srv, srv_spec) in &spec.services {
             // if the srv does not have the network definition then add to the default network
+            let network_name = format!("{}_default", self.project_name);
             if srv_spec.networks.is_empty() {
                 self.network_service
-                    .entry(format!("{}_default", self.project_name))
+                    .entry(network_name.clone())
                     .or_default()
                     .push((srv.clone(), srv_spec.clone()));
+
+                // add to map
+                self.map.insert(
+                    network_name,
+                    NetworkSpec {
+                        external: Option::None,
+                        driver: Some(Bridge),
+                    },
+                );
             }
             for network_name in &srv_spec.networks {
                 if !self.map.contains_key(network_name) {

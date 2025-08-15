@@ -80,5 +80,23 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Run tests with Buck2
-        run: echo "Running tests with Buck2 ..."
+      - name: Setup test environment 
+        run: |
+          # buck2 build
+          reindeer --third-party-dir third-party vendor  
+          reindeer --third-party-dir third-party buckify  
+          buck2 build //project/libbridge:libbridge  
+          buck2 build //project/libipam:libipam  
+
+          # setup CNI directory
+          sudo mkdir -p /opt/cni/bin  
+          sudo mkdir -p /etc/cni/net.d  
+
+          # configure the libbridge  
+          sudo cp $(buck2 build //project/libbridge:libbridge --show-output | cut -d' ' -f2) /opt/cni/bin/libbridge  
+          sudo cp $(buck2 build //project/libipam:libipam --show-output | cut -d' ' -f2) /opt/cni/bin/libipam  
+
+      - name: Run tests
+        run: |
+          cargo test --manifest-path project/Cargo.toml -p rkl
+
