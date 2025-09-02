@@ -3,7 +3,7 @@ use anyhow::Result;
 use common::{PodTask, RksMessage};
 use quinn::Connection;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+
 
 pub async fn watch_delete(
     pod_name: String,
@@ -12,6 +12,7 @@ pub async fn watch_delete(
     node_id: &str,
 ) -> Result<()> {
     let msg = RksMessage::DeletePod(pod_name.clone());
+    
     if let Ok(pods) = xline_store.list_pods().await {
         for p in pods {
             if let Ok(Some(pod_yaml)) = xline_store.get_pod_yaml(&p).await {
@@ -37,11 +38,11 @@ pub async fn watch_delete(
 
 pub async fn user_delete(
     pod_name: String,
-    _xline_store: &Arc<XlineStore>,
+    xline_store: &Arc<XlineStore>,
     conn: &Connection,
-    tx: &broadcast::Sender<RksMessage>,
 ) -> Result<()> {
-    let _ = tx.send(RksMessage::DeletePod(pod_name.clone()));
+    xline_store.delete_pod(&pod_name).await?;
+    println!("[user_delete] deleted pod {} (written to xline)",pod_name);
 
     let response = RksMessage::Ack;
     let data = bincode::serialize(&response)?;

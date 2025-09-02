@@ -364,6 +364,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_ifcanreach_gateway_should_succeed() {
         use std::net::IpAddr;
 

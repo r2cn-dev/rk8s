@@ -513,10 +513,18 @@ pub fn is_err_etcd_node_exist(err: &XlineRegistryError) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::{network::registry::XlineSubnetRegistry, protocol::config::XlineConfig};
-
+    use crate::api::xlinestore::XlineStore;
     use super::*;
     #[tokio::test]
     async fn test_local_manager_with_xline_registry() {
+        let store = XlineStore::new(&["http://127.0.0.1:2379"])
+        .await
+        .expect("failed to connect etcd");
+        store.init_flannel_config()
+        .await
+        .expect("failed to init flannel config");
+
+
         let cfg = XlineConfig {
             endpoints: vec!["http://127.0.0.1:2379".to_string()],
             prefix: "/coreos.com/network".to_string(),
