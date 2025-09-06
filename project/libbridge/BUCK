@@ -22,7 +22,9 @@ rust_binary(
         "//third-party:semver",
         "//third-party:thiserror",
         "//third-party:ipnetwork",
+        "//third-party:iptables",
         "//project/libcni:libcni",
+        "//project/rkl:rkl",
     ],
     env = {
         "CARGO_PKG_AUTHORS": "r2cn-dev team",

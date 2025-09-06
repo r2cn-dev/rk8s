@@ -32,6 +32,9 @@ async fn main() -> anyhow::Result<()> {
             let xline_config = cfg.xline_config;
             let endpoints: Vec<&str> = xline_config.endpoints.iter().map(|s| s.as_str()).collect();
             let xline_store = Arc::new(XlineStore::new(&endpoints).await?);
+            xline_store
+                .insert_network_config(&xline_config.prefix, &cfg.network_config)
+                .await?;
             println!("[rks] listening on {}", cfg.addr);
             let sm = match init::new_subnet_manager(xline_config.clone()).await {
                 Ok(m) => m,

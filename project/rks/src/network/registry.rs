@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use common::lease::{Event as LeaseEvent, EventType, Lease, LeaseAttrs};
 use etcd_client::{
     Client, Compare, CompareOp, ConnectOptions, Event as WatchEvent, GetOptions, KeyValue,
     KvClient, PutOptions, Txn, TxnOp, WatchOptions,
@@ -16,7 +17,7 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{Duration as TokioDuration, sleep};
 
-use crate::network::lease::{Event as LeaseEvent, EventType, Lease, LeaseAttrs, LeaseWatchResult};
+use crate::network::lease::LeaseWatchResult;
 use crate::network::manager::{Cursor, WatchCursor, is_index_too_small};
 use crate::network::subnet::{self, parse_subnet_key};
 use crate::protocol::config::XlineConfig;

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use libcni::ip::route::Route;
 use log::{error, info, warn};
 use quinn::{ClientConfig, Endpoint};
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::network::{
     config::NetworkConfig,
-    route::{RouteConfig, RouteManager, RouteReceiver},
+    route::{RouteManager, RouteReceiver},
     subnet::SubnetReceiver,
 };
 
@@ -91,7 +92,7 @@ impl NetworkReceiver {
                     .handle_subnet_config(&network_config, ip_masq, ipv4_subnet, ipv6_subnet, mtu)
                     .await?;
             }
-            NetworkConfigMessage::RouteConfig { routes } => {
+            NetworkConfigMessage::Route { routes } => {
                 self.route_receiver.handle_route_config(routes).await?;
             }
             NetworkConfigMessage::FullConfig {
@@ -395,7 +396,7 @@ pub enum NetworkConfigMessage {
         mtu: u32,
     },
     /// Route configuration only
-    RouteConfig { routes: Vec<RouteConfig> },
+    Route { routes: Vec<Route> },
     /// Full network configuration (subnet + routes)
     FullConfig {
         network_config: NetworkConfig,
@@ -403,7 +404,7 @@ pub enum NetworkConfigMessage {
         ipv4_subnet: Option<ipnetwork::Ipv4Network>,
         ipv6_subnet: Option<ipnetwork::Ipv6Network>,
         mtu: u32,
-        routes: Vec<RouteConfig>,
+        routes: Vec<Route>,
     },
 }
 

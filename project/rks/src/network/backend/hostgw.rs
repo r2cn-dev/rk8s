@@ -1,19 +1,19 @@
+use crate::network::{
+    backend::route::RouteListOps, config::Config, iface::check_hostgw_compatibility,
+    lease::LeaseWatcher, manager::LocalManager,
+};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use common::{
+    ExternalInterface,
+    lease::{Event, EventType, Lease, LeaseAttrs},
+};
 use log::{error, info, warn};
 use netlink_packet_route::AddressFamily;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::network::{
-    backend::route::RouteListOps,
-    config::Config,
-    iface::check_hostgw_compatibility,
-    lease::{Event, EventType, Lease, LeaseAttrs, LeaseWatcher},
-    manager::LocalManager,
-};
-
-use super::{Backend, ExternalInterface, Network, SimpleNetwork, route::RouteManager};
+use super::{Backend, Network, SimpleNetwork, route::RouteManager};
 
 /// Host-GW backend implementation
 /// This backend uses host routing table to implement container networking
@@ -133,11 +133,11 @@ impl RouteNetwork {
                     );
 
                     // Add routes for the new lease
-                    if let Some(route) = self.route_manager.get_route_for_lease(&lease) {
+                    if let Some(route) = self.route_manager.get_route_form_lease(&lease) {
                         self.route_manager.add_route(&route).await?;
                     }
 
-                    if let Some(route_v6) = self.route_manager.get_v6_route_for_lease(&lease) {
+                    if let Some(route_v6) = self.route_manager.get_v6_route_form_lease(&lease) {
                         self.route_manager.add_v6_route(&route_v6).await?;
                     }
                 }
@@ -158,13 +158,13 @@ impl RouteNetwork {
                     );
 
                     // Remove routes for the removed lease
-                    if let Some(route) = self.route_manager.get_route_for_lease(&lease) {
+                    if let Some(route) = self.route_manager.get_route_form_lease(&lease) {
                         self.route_manager
                             .remove_from_route_list(&route, AddressFamily::Inet);
                         self.route_manager.delete_route(&route).await?;
                     }
 
-                    if let Some(route_v6) = self.route_manager.get_v6_route_for_lease(&lease) {
+                    if let Some(route_v6) = self.route_manager.get_v6_route_form_lease(&lease) {
                         self.route_manager
                             .remove_from_route_list(&route_v6, AddressFamily::Inet6);
                         self.route_manager.delete_route(&route_v6).await?;

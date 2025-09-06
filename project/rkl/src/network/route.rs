@@ -1,6 +1,8 @@
 use anyhow::Result;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use libcni::ip::route::{self, Route, RouteFilterMask};
 use log::{debug, error, info, warn};
+use netlink_packet_route::{AddressFamily, route::RouteType};
 use std::{net::IpAddr, sync::Arc};
 use tokio::{
     select,
@@ -8,61 +10,22 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-// Custom enums for cross-platform compatibility
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AddressFamily {
-    Inet,
-    Inet6,
-    Unspec,
-}
-
-impl From<AddressFamily> for u8 {
-    fn from(family: AddressFamily) -> u8 {
-        match family {
-            AddressFamily::Inet => 2,   // AF_INET
-            AddressFamily::Inet6 => 10, // AF_INET6
-            AddressFamily::Unspec => 0, // AF_UNSPEC
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-/// Lease information for route generation
-/// This is a simplified version that will be received from rks
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NetworkLease {
-    pub enable_ipv4: bool,
-    pub enable_ipv6: bool,
-    pub subnet: Ipv4Network,
-    pub ipv6_subnet: Option<Ipv6Network>,
-    pub public_ip: std::net::Ipv4Addr,
-    pub public_ipv6: Option<std::net::Ipv6Addr>,
-}
-
-/// Route configuration structure received from rks
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RouteConfig {
-    pub destination: IpNetwork,
-    pub gateway: Option<IpAddr>,
-    pub interface_index: Option<u32>,
-    pub metric: Option<u32>,
-}
-
+use common::lease::Lease;
 /// Route manager for handling system routing table operations on rkl node
 pub struct RouteManager {
     link_index: u32,
     backend_type: String,
-    routes: Vec<RouteConfig>,
-    v6routes: Vec<RouteConfig>,
+    routes: Vec<Route>,
+    v6routes: Vec<Route>,
 }
 
 pub trait RouteListOps {
-    fn add_to_route_list(&mut self, route: RouteConfig, family: AddressFamily);
-    fn remove_from_route_list(&mut self, route: &RouteConfig, family: AddressFamily);
+    fn add_to_route_list(&mut self, route: Route, family: AddressFamily);
+    fn remove_from_route_list(&mut self, route: &Route, family: AddressFamily);
 }
 
 impl RouteListOps for RouteManager {
-    fn add_to_route_list(&mut self, route: RouteConfig, family: AddressFamily) {
+    fn add_to_route_list(&mut self, route: Route, family: AddressFamily) {
         match family {
             AddressFamily::Inet => {
                 self.routes = add_to_route_list(route, std::mem::take(&mut self.routes));
@@ -74,7 +37,7 @@ impl RouteListOps for RouteManager {
         }
     }
 
-    fn remove_from_route_list(&mut self, route: &RouteConfig, family: AddressFamily) {
+    fn remove_from_route_list(&mut self, route: &Route, family: AddressFamily) {
         match family {
             AddressFamily::Inet => {
                 self.routes = remove_from_route_list(route, &self.routes);
@@ -89,8 +52,8 @@ impl RouteListOps for RouteManager {
 
 impl RouteManager {
     pub fn new(link_index: u32, backend_type: String) -> Self {
-        let routes: Vec<RouteConfig> = vec![];
-        let v6routes: Vec<RouteConfig> = vec![];
+        let routes: Vec<Route> = vec![];
+        let v6routes: Vec<Route> = vec![];
         Self {
             link_index,
             backend_type,
@@ -99,109 +62,79 @@ impl RouteManager {
         }
     }
 
-    /// Generate IPv4 route for a lease
-    pub fn get_route_for_lease(&self, lease: &NetworkLease) -> Option<RouteConfig> {
+    /// Generate IPv4 route form a lease
+    pub fn get_route_form_lease(&self, lease: &Lease) -> Option<Route> {
         if !lease.enable_ipv4 {
             return None;
         }
 
-        Some(RouteConfig {
-            destination: IpNetwork::V4(lease.subnet),
-            gateway: Some(IpAddr::V4(lease.public_ip)),
-            interface_index: Some(self.link_index),
+        Some(Route {
+            dst: Some(IpNetwork::V4(lease.subnet)),
+            gateway: Some(IpAddr::V4(lease.attrs.public_ip)),
+            oif_index: Some(self.link_index),
             metric: None,
+            ..Default::default()
         })
     }
 
-    /// Generate IPv6 route for a lease
-    pub fn get_v6_route_for_lease(&self, lease: &NetworkLease) -> Option<RouteConfig> {
+    /// Generate IPv6 route form a lease
+    pub fn get_v6_route_form_lease(&self, lease: &Lease) -> Option<Route> {
         if !lease.enable_ipv6 {
             return None;
         }
 
         let subnet_v6 = lease.ipv6_subnet?;
-        let gateway_v6 = lease.public_ipv6?;
+        let gateway_v6 = lease.attrs.public_ipv6?;
 
-        Some(RouteConfig {
-            destination: IpNetwork::V6(subnet_v6),
+        Some(Route {
+            dst: Some(IpNetwork::V6(subnet_v6)),
             gateway: Some(IpAddr::V6(gateway_v6)),
-            interface_index: Some(self.link_index),
+            oif_index: Some(self.link_index),
             metric: None,
+            ..Default::default()
         })
     }
 
     /// Add a route to the system routing table
-    pub async fn add_route(&mut self, route: &RouteConfig) -> Result<()> {
+    pub async fn add_route(&mut self, route: &Route) -> Result<()> {
         info!(
-            "Adding route: {:?} via {:?} dev {:?} ({})",
-            route.destination, route.gateway, route.interface_index, self.backend_type
+            "Adding IPv4 route: {:?} via {:?} dev {:?} ({})",
+            route.dst, route.gateway, route.oif_index, self.backend_type
         );
-
-        let family = match route.destination {
-            IpNetwork::V4(_) => AddressFamily::Inet,
-            IpNetwork::V6(_) => AddressFamily::Inet6,
-        };
-
-        // Perform actual route addition
-        match self.add_system_route(route).await {
-            Ok(_) => {
-                info!("Successfully added route: {route:?}");
-                self.add_to_route_list(route.clone(), family);
-            }
-            Err(e) => {
-                error!("Failed to add route {route:?}: {e}");
-                return Err(e);
-            }
-        }
-
-        Ok(())
+        route_add_with_check(route.clone(), AddressFamily::Inet, self).await
     }
 
     /// Add an IPv6 route to the system routing table
-    pub async fn add_v6_route(&mut self, route: &RouteConfig) -> Result<()> {
-        // IPv6 routes are now handled by the unified add_route method
-        self.add_route(route).await
+    pub async fn add_v6_route(&mut self, route: &Route) -> Result<()> {
+        info!(
+            "Adding IPv6 route: {:?} via {:?} dev {:?} ({})",
+            route.dst, route.gateway, route.oif_index, self.backend_type
+        );
+
+        route_add_with_check(route.clone(), AddressFamily::Inet6, self).await
     }
 
     /// Remove a route from the system routing table
-    pub async fn delete_route(&mut self, route: &RouteConfig) -> Result<()> {
+    pub async fn delete_route(&self, route: &Route) -> Result<()> {
         info!(
-            "Removing route: {:?} via {:?} dev {:?} ({})",
-            route.destination, route.gateway, route.interface_index, self.backend_type
+            "Removing IPv4 route: {:?} via {:?} dev {:?} ({})",
+            route.dst, route.gateway, route.oif_index, self.backend_type
         );
-
-        let family = match route.destination {
-            IpNetwork::V4(_) => AddressFamily::Inet,
-            IpNetwork::V6(_) => AddressFamily::Inet6,
-        };
-
-        // Perform actual route deletion
-        match self.delete_system_route(route).await {
-            Ok(_) => {
-                info!("Successfully deleted route: {route:?}");
-                self.remove_from_route_list(route, family);
-            }
-            Err(e) => {
-                error!("Failed to delete route {route:?}: {e}");
-                return Err(e);
-            }
-        }
-
-        Ok(())
+        route::route_del(route.clone()).await
     }
 
     /// Synchronize routes with a list of leases
-    pub async fn sync_routes(&mut self, leases: &[NetworkLease]) -> Result<()> {
+    pub async fn sync_routes(&mut self, leases: &[Lease]) -> Result<()> {
         debug!("Synchronizing routes for {} leases", leases.len());
 
         for lease in leases {
-            if let Some(route) = self.get_route_for_lease(lease)
+            if let Some(route) = self.get_route_form_lease(lease)
                 && let Err(e) = self.add_route(&route).await
             {
                 warn!("Failed to add IPv4 route for lease {}: {}", lease.subnet, e);
             }
 
-            if let Some(route_v6) = self.get_v6_route_for_lease(lease)
+            if let Some(route_v6) = self.get_v6_route_form_lease(lease)
                 && let Err(e) = self.add_v6_route(&route_v6).await
             {
                 warn!(
@@ -214,11 +147,11 @@ impl RouteManager {
     }
 
     /// Clean up all routes for a list of leases
-    pub async fn cleanup_routes(&mut self, leases: &[NetworkLease]) -> Result<()> {
+    pub async fn cleanup_routes(&self, leases: &[Lease]) -> Result<()> {
         debug!("Cleaning up routes for {} leases", leases.len());
 
         for lease in leases {
-            if let Some(route) = self.get_route_for_lease(lease)
+            if let Some(route) = self.get_route_form_lease(lease)
                 && let Err(e) = self.delete_route(&route).await
             {
                 warn!(
@@ -227,7 +160,7 @@ impl RouteManager {
                 );
             }
 
-            if let Some(route_v6) = self.get_v6_route_for_lease(lease)
+            if let Some(route_v6) = self.get_v6_route_form_lease(lease)
                 && let Err(e) = self.delete_route(&route_v6).await
             {
                 warn!(
@@ -237,92 +170,6 @@ impl RouteManager {
             }
         }
 
-        Ok(())
-    }
-
-    /// Add route to system routing table using netlink (Linux only)
-    #[cfg(target_os = "linux")]
-    async fn add_system_route(&self, route: &RouteConfig) -> Result<()> {
-        use std::process::Command;
-
-        // For now, use 'ip route' command as a fallback
-        // In production, this should use the netlink API directly
-        let dest_str = route.destination.to_string();
-        let mut cmd = Command::new("ip");
-        cmd.arg("route").arg("add").arg(&dest_str);
-
-        if let Some(gateway) = route.gateway {
-            cmd.arg("via").arg(gateway.to_string());
-        }
-
-        if let Some(interface_index) = route.interface_index {
-            // Convert interface index to interface name
-            cmd.arg("dev").arg(format!("eth{interface_index}"));
-        }
-
-        if let Some(metric) = route.metric {
-            cmd.arg("metric").arg(metric.to_string());
-        }
-
-        let output = cmd.output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // Ignore "File exists" errors as the route might already exist
-            if !stderr.contains("File exists") {
-                return Err(anyhow::anyhow!("Failed to add route: {stderr}"));
-            }
-        }
-
-        info!("Route added successfully via 'ip route' command");
-        Ok(())
-    }
-
-    /// Delete route from system routing table using netlink (Linux only)
-    #[cfg(target_os = "linux")]
-    async fn delete_system_route(&self, route: &RouteConfig) -> Result<()> {
-        use std::process::Command;
-
-        // For now, use 'ip route' command as a fallback
-        // In production, this should use the netlink API directly
-        let dest_str = route.destination.to_string();
-        let mut cmd = Command::new("ip");
-        cmd.arg("route").arg("del").arg(&dest_str);
-
-        if let Some(gateway) = route.gateway {
-            cmd.arg("via").arg(gateway.to_string());
-        }
-
-        if let Some(interface_index) = route.interface_index {
-            // Convert interface index to interface name
-            cmd.arg("dev").arg(format!("eth{interface_index}"));
-        }
-
-        let output = cmd.output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // Ignore "No such process" errors as the route might not exist
-            if !stderr.contains("No such process") && !stderr.contains("Cannot find device") {
-                return Err(anyhow::anyhow!("Failed to delete route: {stderr}"));
-            }
-        }
-
-        info!("Route deleted successfully via 'ip route' command");
-        Ok(())
-    }
-
-    /// Stub for non-Linux platforms
-    #[cfg(not(target_os = "linux"))]
-    async fn add_system_route(&self, route: &RouteConfig) -> Result<()> {
-        warn!("Route addition not implemented for this platform: {route:?}");
-        Ok(())
-    }
-
-    /// Stub for non-Linux platforms
-    #[cfg(not(target_os = "linux"))]
-    async fn delete_system_route(&self, route: &RouteConfig) -> Result<()> {
-        warn!("Route deletion not implemented for this platform: {route:?}");
         Ok(())
     }
 
@@ -347,18 +194,39 @@ impl RouteManager {
 
     async fn check_subnet_exist_in_routes(
         &self,
-        routes: &[RouteConfig],
-        _family: AddressFamily,
+        routes: &[Route],
+        family: AddressFamily,
     ) -> Result<()> {
-        // For now, just log the operation
+        let route_list = match route::route_list(family).await {
+            Ok(list) => list,
+            Err(err) => {
+                error!("Error fetching route list. Will automatically retry: {err:?}");
+                return Err(err);
+            }
+        };
+
         for route in routes {
-            info!(
-                "Checking route: {:?} -> {:?}",
-                route.destination, route.gateway
-            );
+            if route.dst.is_none() {
+                continue;
+            }
+
+            let exists = route_list.iter().any(|r| route::route_equal(r, route));
+
+            if !exists {
+                match route::route_add(route.clone()).await {
+                    Ok(_) => {
+                        info!("Route recovered: {:?} -> {:?}", route.dst, route.gateway);
+                    }
+                    Err(e) => {
+                        error!(
+                            "Error recovering route to {:?} {:?}: {:?}",
+                            route.dst, route.gateway, e
+                        );
+                    }
+                }
+            }
         }
 
-        warn!("Route checking not yet implemented");
         Ok(())
     }
 
@@ -383,19 +251,19 @@ impl RouteManager {
     }
 
     /// Get current routes
-    pub fn get_routes(&self) -> &[RouteConfig] {
+    pub fn get_routes(&self) -> &[Route] {
         &self.routes
     }
 
     /// Get current IPv6 routes
-    pub fn get_v6_routes(&self) -> &[RouteConfig] {
+    pub fn get_v6_routes(&self) -> &[Route] {
         &self.v6routes
     }
 }
 
-pub fn add_to_route_list(route: RouteConfig, mut routes: Vec<RouteConfig>) -> Vec<RouteConfig> {
+pub fn add_to_route_list(route: Route, mut routes: Vec<Route>) -> Vec<Route> {
     for r in &routes {
-        if route_equal(r, &route) {
+        if route::route_equal(r, &route) {
             return routes;
         }
     }
@@ -403,12 +271,12 @@ pub fn add_to_route_list(route: RouteConfig, mut routes: Vec<RouteConfig>) -> Ve
     routes
 }
 
-pub fn remove_from_route_list(target: &RouteConfig, routes: &[RouteConfig]) -> Vec<RouteConfig> {
+pub fn remove_from_route_list(target: &Route, routes: &[Route]) -> Vec<Route> {
     let mut result = Vec::with_capacity(routes.len());
     let mut removed = false;
 
     for r in routes {
-        if !removed && route_equal(r, target) {
+        if !removed && route::route_equal(r, target) {
             removed = true;
             continue;
         }
@@ -418,81 +286,120 @@ pub fn remove_from_route_list(target: &RouteConfig, routes: &[RouteConfig]) -> V
     result
 }
 
-/// Compare two routes for equality
-pub fn route_equal(a: &RouteConfig, b: &RouteConfig) -> bool {
-    a.destination == b.destination
-        && a.gateway == b.gateway
-        && a.interface_index == b.interface_index
-        && a.metric == b.metric
-}
+pub async fn route_add_with_check<T>(route: Route, family: AddressFamily, ops: &mut T) -> Result<()>
+where
+    T: RouteListOps,
+{
+    ops.add_to_route_list(route.clone(), family);
 
-/// Add blackhole route for IPv4 network
-#[cfg(target_os = "linux")]
-pub async fn add_blackhole_v4_route(dst: Ipv4Network) -> Result<()> {
-    use std::process::Command;
+    let filter = Route {
+        dst: route.dst,
+        gateway: None,
+        oif_index: None,
+        src: None,
+        route_type: None,
+        metric: None,
+    };
 
-    info!("Adding blackhole route for {dst}");
+    let mask = RouteFilterMask {
+        dst: true,
+        ..Default::default()
+    };
 
-    let mut cmd = Command::new("ip");
-    cmd.arg("route")
-        .arg("add")
-        .arg("blackhole")
-        .arg(dst.to_string());
+    let mut route_list = route::route_list_filtered_vec(family, Some(&filter), mask)
+        .await
+        .unwrap_or_else(|err| {
+            warn!("Unable to list routes: {err:?}");
+            vec![]
+        });
 
-    let output = cmd.output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.contains("File exists") {
-            return Err(anyhow::anyhow!("Failed to add blackhole route: {}", stderr));
+    if let Some(existing) = route_list.first()
+        && !route::route_equal(existing, &route)
+    {
+        warn!(
+            "Replacing existing route to {:?} with {:?}",
+            existing.dst, route.dst
+        );
+        if let Err(err) = route::route_del(existing.clone()).await {
+            error!("Error deleting route to {:?}: {:?}", existing.dst, err);
+            return Ok(());
         }
+        ops.remove_from_route_list(existing, family);
     }
 
-    info!("Blackhole route added successfully for {dst}");
-    Ok(())
-}
+    route_list = route::route_list_filtered_vec(family, Some(&filter), mask)
+        .await
+        .unwrap_or_else(|err| {
+            warn!("Unable to list routes: {err:?}");
+            vec![]
+        });
 
-/// Add blackhole route for IPv6 network
-#[cfg(target_os = "linux")]
-pub async fn add_blackhole_v6_route(dst: Ipv6Network) -> Result<()> {
-    use std::process::Command;
-
-    info!("Adding blackhole route for {dst}");
-
-    let mut cmd = Command::new("ip");
-    cmd.arg("-6")
-        .arg("route")
-        .arg("add")
-        .arg("blackhole")
-        .arg(dst.to_string());
-
-    let output = cmd.output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.contains("File exists") {
-            return Err(anyhow::anyhow!(
-                "Failed to add IPv6 blackhole route: {}",
-                stderr
-            ));
-        }
+    if let Some(existing) = route_list.first()
+        && route::route_equal(existing, &route)
+    {
+        info!("Route to {:?} already exists, skipping.", route.dst);
+        return Ok(());
     }
 
-    info!("IPv6 blackhole route added successfully for {dst}");
+    if let Err(err) = route::route_add(route.clone()).await {
+        error!("Error adding route to {:?}: {:?}", route.dst, err);
+        return Ok(());
+    }
+
+    let _ = route::route_list_filtered_vec(family, Some(&filter), mask)
+        .await
+        .map_err(|err| {
+            warn!("Unable to list routes: {err:?}");
+        });
+
     Ok(())
 }
 
-/// Stub for non-Linux platforms
-#[cfg(not(target_os = "linux"))]
 pub async fn add_blackhole_v4_route(dst: Ipv4Network) -> Result<()> {
-    warn!("Blackhole route addition not implemented for this platform: {dst}");
+    let dst = IpNetwork::V4(dst);
+    let route = Route {
+        dst: Some(dst),
+        route_type: Some(RouteType::BlackHole),
+        ..Default::default()
+    };
+
+    let mask = RouteFilterMask {
+        dst: true,
+        route_type: true,
+        ..Default::default()
+    };
+
+    let routes = route::route_list_filtered_vec(AddressFamily::Inet, Some(&route), mask).await?;
+
+    if routes.is_empty() {
+        route::route_add(route).await?;
+        info!("Blackhole route added for {dst}");
+    }
+
     Ok(())
 }
 
-/// Stub for non-Linux platforms
-#[cfg(not(target_os = "linux"))]
 pub async fn add_blackhole_v6_route(dst: Ipv6Network) -> Result<()> {
-    warn!("IPv6 blackhole route addition not implemented for this platform: {dst}");
+    let dst = IpNetwork::V6(dst);
+    let route = Route {
+        dst: Some(dst),
+        route_type: Some(RouteType::BlackHole),
+        ..Default::default()
+    };
+
+    let mask = RouteFilterMask {
+        dst: true,
+        route_type: true,
+        ..Default::default()
+    };
+
+    let routes = route::route_list_filtered_vec(AddressFamily::Inet6, Some(&route), mask).await?;
+
+    if routes.is_empty() {
+        route::route_add(route).await?;
+        info!("Blackhole route added for {dst}");
+    }
+
     Ok(())
 }
 
@@ -509,26 +416,29 @@ impl RouteReceiver {
 
     /// Handle received route configuration from rks
     /// This function will be called when rks sends route configuration
-    pub async fn handle_route_config(&self, routes: Vec<RouteConfig>) -> Result<()> {
+    pub async fn handle_route_config(&self, routes: Vec<Route>) -> Result<()> {
         info!("Received {} route configurations from rks", routes.len());
 
         let mut manager = self.route_manager.lock().await;
 
         for route in routes {
-            match route.destination {
-                IpNetwork::V4(_) => {
+            match &route.dst {
+                Some(IpNetwork::V4(_)) => {
                     if let Err(e) = manager.add_route(&route).await {
                         error!("Failed to add IPv4 route {route:?}: {e}");
                     } else {
                         info!("Successfully added IPv4 route: {route:?}");
                     }
                 }
-                IpNetwork::V6(_) => {
+                Some(IpNetwork::V6(_)) => {
                     if let Err(e) = manager.add_route(&route).await {
                         error!("Failed to add IPv6 route {route:?}: {e}");
                     } else {
                         info!("Successfully added IPv6 route: {route:?}");
                     }
+                }
+                None => {
+                    warn!("Skipping route with no destination: {route:?}");
                 }
             }
         }
@@ -548,10 +458,10 @@ impl RouteReceiver {
     }
 
     /// Remove specific routes
-    pub async fn remove_routes(&self, routes: Vec<RouteConfig>) -> Result<()> {
+    pub async fn remove_routes(&self, routes: Vec<Route>) -> Result<()> {
         info!("Removing {} route configurations", routes.len());
 
-        let mut manager = self.route_manager.lock().await;
+        let manager = self.route_manager.lock().await;
 
         for route in routes {
             if let Err(e) = manager.delete_route(&route).await {
@@ -563,113 +473,5 @@ impl RouteReceiver {
 
         info!("Route removal completed");
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_route_equal() {
-        let route1 = RouteConfig {
-            destination: IpNetwork::V4("10.0.1.0/24".parse().unwrap()),
-            gateway: Some(IpAddr::V4("192.168.1.1".parse().unwrap())),
-            interface_index: Some(1),
-            metric: Some(100),
-        };
-
-        let route2 = RouteConfig {
-            destination: IpNetwork::V4("10.0.1.0/24".parse().unwrap()),
-            gateway: Some(IpAddr::V4("192.168.1.1".parse().unwrap())),
-            interface_index: Some(1),
-            metric: Some(100),
-        };
-
-        let route3 = RouteConfig {
-            destination: IpNetwork::V4("10.0.2.0/24".parse().unwrap()),
-            gateway: Some(IpAddr::V4("192.168.1.1".parse().unwrap())),
-            interface_index: Some(1),
-            metric: Some(100),
-        };
-
-        assert!(route_equal(&route1, &route2));
-        assert!(!route_equal(&route1, &route3));
-    }
-
-    #[test]
-    fn test_add_to_route_list() {
-        let route = RouteConfig {
-            destination: IpNetwork::V4("10.0.1.0/24".parse().unwrap()),
-            gateway: Some(IpAddr::V4("192.168.1.1".parse().unwrap())),
-            interface_index: Some(1),
-            metric: Some(100),
-        };
-
-        let mut routes = vec![];
-        routes = add_to_route_list(route.clone(), routes);
-        assert_eq!(routes.len(), 1);
-
-        // Adding the same route again should not increase the list size
-        routes = add_to_route_list(route, routes);
-        assert_eq!(routes.len(), 1);
-    }
-
-    #[test]
-    fn test_remove_from_route_list() {
-        let route1 = RouteConfig {
-            destination: IpNetwork::V4("10.0.1.0/24".parse().unwrap()),
-            gateway: Some(IpAddr::V4("192.168.1.1".parse().unwrap())),
-            interface_index: Some(1),
-            metric: Some(100),
-        };
-
-        let route2 = RouteConfig {
-            destination: IpNetwork::V4("10.0.2.0/24".parse().unwrap()),
-            gateway: Some(IpAddr::V4("192.168.1.1".parse().unwrap())),
-            interface_index: Some(1),
-            metric: Some(100),
-        };
-
-        let routes = vec![route1.clone(), route2];
-        let routes = remove_from_route_list(&route1, &routes);
-        assert_eq!(routes.len(), 1);
-    }
-
-    #[test]
-    fn test_route_manager_lease_routes() {
-        let manager = RouteManager::new(1, "hostgw".to_string());
-
-        let lease = NetworkLease {
-            enable_ipv4: true,
-            enable_ipv6: true,
-            subnet: "10.0.1.0/24".parse().unwrap(),
-            ipv6_subnet: Some("fc00::/64".parse().unwrap()),
-            public_ip: "192.168.1.1".parse().unwrap(),
-            public_ipv6: Some("fc00::1".parse().unwrap()),
-        };
-
-        let ipv4_route = manager.get_route_for_lease(&lease);
-        assert!(ipv4_route.is_some());
-
-        let route = ipv4_route.unwrap();
-        assert_eq!(
-            route.destination,
-            IpNetwork::V4("10.0.1.0/24".parse().unwrap())
-        );
-        assert_eq!(
-            route.gateway,
-            Some(IpAddr::V4("192.168.1.1".parse().unwrap()))
-        );
-
-        let ipv6_route = manager.get_v6_route_for_lease(&lease);
-        assert!(ipv6_route.is_some());
-
-        let route = ipv6_route.unwrap();
-        assert_eq!(
-            route.destination,
-            IpNetwork::V6("fc00::/64".parse().unwrap())
-        );
-        assert_eq!(route.gateway, Some(IpAddr::V6("fc00::1".parse().unwrap())));
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Deserialize)]
@@ -8,6 +8,8 @@ pub struct Config {
     pub addr: String,
     // Xline endpoints
     pub xline_config: XlineConfig,
+    // network config
+    pub network_config: NetworkConfig,
 }
 
 #[allow(dead_code)]
@@ -18,6 +20,22 @@ pub struct XlineConfig {
     pub username: Option<String>,
     pub password: Option<String>,
     pub subnet_lease_renew_margin: Option<i64>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    #[serde(rename = "Network")]
+    pub network: String,
+
+    #[serde(rename = "SubnetMin")]
+    pub subnet_min: String,
+
+    #[serde(rename = "SubnetMax")]
+    pub subnet_max: String,
+
+    #[serde(rename = "SubnetLen")]
+    pub subnet_len: u8,
 }
 
 pub fn load_config(path: &str) -> Result<Config> {

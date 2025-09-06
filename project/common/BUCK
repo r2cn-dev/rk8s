@@ -7,6 +7,9 @@ rust_library(
     edition = "2024",
     deps = [
         "//third-party:serde",
+        "//third-party:chrono",
+        "//third-party:serde_json",
+        "//third-party:ipnetwork",
         "//project/libcni:libcni",
     ],
     env = {

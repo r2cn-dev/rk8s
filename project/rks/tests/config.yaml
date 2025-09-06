@@ -1,4 +1,4 @@
-addr: "192.168.88.128:50051"
+addr: "192.168.239.128:50051"
 xline_config:
   endpoints:
     - "http://172.20.0.3:2379"
@@ -6,3 +6,8 @@ xline_config:
     - "http://172.20.0.5:2379"
   prefix: "/coreos.com/network"
   subnet_lease_renew_margin: 60
+network_config:
+  Network: "10.1.0.0/16"
+  SubnetMin: "10.1.1.0"
+  SubnetMax: "10.1.254.0"
+  SubnetLen: 24

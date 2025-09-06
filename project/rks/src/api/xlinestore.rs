@@ -5,6 +5,8 @@ use etcd_client::{Client, GetOptions, PutOptions};
 use serde_yaml;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use crate::protocol::config::NetworkConfig;
 /// like etcd, k:/registry/pods/pod_name v:yaml file of pod
 /// k:/registry/nodes/node_name v:yaml file of node
 #[derive(Clone)]
@@ -98,5 +100,27 @@ impl XlineStore {
         let mut client = self.client.write().await;
         client.delete(key, None).await?;
         Ok(())
+    }
+
+    pub async fn insert_network_config(&self, prefix: &str, config: &NetworkConfig) -> Result<()> {
+        let key = format!("{}/config", prefix.trim_end_matches('/'));
+
+        let value = serde_json::to_string(config)?;
+
+        let mut client = self.client.write().await;
+        client.put(key, value, Some(PutOptions::new())).await?;
+        Ok(())
+    }
+
+    pub async fn get_network_config(&self, prefix: &str) -> Result<Option<NetworkConfig>> {
+        let key = format!("{}/config", prefix.trim_end_matches('/'));
+        let mut client = self.client.write().await;
+        let resp = client.get(key, None).await?;
+        if let Some(kv) = resp.kvs().first() {
+            let cfg: NetworkConfig = serde_json::from_slice(kv.value())?;
+            Ok(Some(cfg))
+        } else {
+            Ok(None)
+        }
     }
 }

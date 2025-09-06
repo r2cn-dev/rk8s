@@ -26,6 +26,7 @@ use netlink_packet_route::{
     AddressFamily,
     link::{InfoBridge, InfoData, LinkAttribute, LinkInfo},
 };
+use rkl::network::ip::{IPStack, PublicIPOpts, lookup_ext_iface};
 use rtnetlink::{
     LinkBridge,
     packet_core::{NLM_F_ACK, NLM_F_REQUEST},
@@ -509,6 +510,8 @@ async fn cmd_add(mut config: BridgeNetConf, inputs: Inputs) -> Result<SuccessRep
             }
         }
     }
+    setup_iptable(config.br_name.unwrap_or(BRIDGE_DEFAULT_NAME.to_owned())).await?;
+
     Ok(bridge_result)
 }
 
@@ -684,7 +687,60 @@ async fn cmd_del(config: BridgeNetConf, inputs: Inputs) -> Result<SuccessReply, 
     .await?;
 
     ipam_del().await?;
+    cleanup_iptable(config.br_name.unwrap_or(BRIDGE_DEFAULT_NAME.to_owned())).await?;
     Ok(result)
+}
+
+pub async fn setup_iptable(br_name: String) -> anyhow::Result<()> {
+    let ipt = iptables::new(false).unwrap();
+
+    let ext_iface = lookup_ext_iface(
+        None,
+        None,
+        None,
+        IPStack::Ipv4,
+        PublicIPOpts {
+            public_ip: None,
+            public_ipv6: None,
+        },
+    )
+    .await?;
+
+    let rule1 = format!("-i {} -o {br_name} -j ACCEPT", ext_iface.iface.name);
+    let rule2 = format!("-i {br_name} -o {} -j ACCEPT", ext_iface.iface.name);
+
+    ipt.insert("filter", "FORWARD", &rule1, 1)
+        .map_err(|e| anyhow::anyhow!("failed to insert rule1: {e}"))?;
+    ipt.insert("filter", "FORWARD", &rule2, 1)
+        .map_err(|e| anyhow::anyhow!("failed to insert rule2: {e}"))?;
+
+    Ok(())
+}
+
+pub async fn cleanup_iptable(br_name: String) -> anyhow::Result<()> {
+    let ipt = iptables::new(false).unwrap();
+
+    let ext_iface = lookup_ext_iface(
+        None,
+        None,
+        None,
+        IPStack::Ipv4,
+        PublicIPOpts {
+            public_ip: None,
+            public_ipv6: None,
+        },
+    )
+    .await?;
+
+    let rule1 = format!("-i {} -o {br_name} -j ACCEPT", ext_iface.iface.name);
+    let rule2 = format!("-i {br_name} -o {} -j ACCEPT", ext_iface.iface.name);
+
+    ipt.delete("filter", "FORWARD", &rule1)
+        .map_err(|e| anyhow::anyhow!("failed to delete rule1: {e}"))?;
+    ipt.delete("filter", "FORWARD", &rule2)
+        .map_err(|e| anyhow::anyhow!("failed to delete rule2: {e}"))?;
+
+    Ok(())
 }
 
 #[cfg(test)]

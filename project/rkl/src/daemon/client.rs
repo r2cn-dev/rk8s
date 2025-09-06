@@ -1,23 +1,21 @@
 use anyhow::Result;
 use bincode;
-use libcni::ip::route::Route;
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig as QuinnClientConfig, Endpoint};
 use std::{env, fs, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 use tokio::time;
 
 use crate::commands::pod;
+use crate::network::ip::{IPStack, PublicIPOpts, lookup_ext_iface};
 use crate::network::{
     config::{NetworkConfig, validate_network_config},
     receiver::{NetworkConfigMessage, NetworkReceiver},
-    route::RouteConfig,
 };
 use crate::task::TaskRunner;
 use chrono::Utc;
 use common::*;
-use get_if_addrs::get_if_addrs;
 use gethostname::gethostname;
-use ipnetwork::{IpNetwork, Ipv4Network};
+use ipnetwork::Ipv4Network;
 use rustls::DigitallySignedStruct;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
@@ -112,10 +110,22 @@ pub async fn run_forever() -> Result<()> {
         env::var("RKS_ADDRESS").unwrap_or_else(|_| "192.168.73.128:50051".to_string());
     let server_addr: SocketAddr = server_addr.parse()?;
 
+    let ext_iface = lookup_ext_iface(
+        None,
+        None,
+        None,
+        IPStack::Ipv4,
+        PublicIPOpts {
+            public_ip: None,
+            public_ipv6: None,
+        },
+    )
+    .await?;
+
     let node: Node = if let Ok(node_yaml) = env::var("NODE_YAML") {
         load_node_from_yaml(&node_yaml)?
     } else {
-        generate_node()
+        generate_node(&ext_iface).await?
     };
 
     loop {
@@ -254,9 +264,8 @@ pub async fn run_once(server_addr: SocketAddr, node: Node) -> Result<()> {
                         }
                         Ok(RksMessage::UpdateRoutes(_id, routes)) => {
                             println!("[worker] received routes update: {routes:?}");
-
-                            if let Err(e) =
-                                handle_route_config(&network_receiver, routes.as_slice()).await
+                            let route_msg = NetworkConfigMessage::Route { routes };
+                            if let Err(e) = network_receiver.handle_network_config(route_msg).await
                             {
                                 eprintln!("[worker] failed to apply routes: {e}");
                                 let _ = send_uni(
@@ -430,37 +439,6 @@ async fn handle_network_config(
     Ok(())
 }
 
-async fn handle_route_config(network_receiver: &NetworkReceiver, routes: &[Route]) -> Result<()> {
-    println!("Processing {} route configurations", routes.len());
-
-    let route_configs: Vec<RouteConfig> = routes
-        .iter()
-        .map(|route| RouteConfig {
-            destination: match route.dst {
-                Some(dst) => {
-                    let dst_str = dst.to_string();
-                    dst_str.parse::<IpNetwork>().unwrap_or_else(|_| {
-                        IpNetwork::V4(Ipv4Network::new("0.0.0.0".parse().unwrap(), 0).unwrap())
-                    })
-                }
-                None => IpNetwork::V4(Ipv4Network::new("0.0.0.0".parse().unwrap(), 0).unwrap()),
-            },
-            gateway: route.gateway,
-            interface_index: route.oif_index,
-            metric: route.metric,
-        })
-        .collect();
-
-    let route_msg = NetworkConfigMessage::RouteConfig {
-        routes: route_configs,
-    };
-
-    network_receiver.handle_network_config(route_msg).await?;
-
-    println!("Route configurations processed successfully");
-    Ok(())
-}
-
 /// Send a message over a unidirectional stream
 async fn send_uni(conn: &quinn::Connection, msg: &RksMessage) -> Result<()> {
     let mut uni = conn.open_uni().await?;
@@ -475,7 +453,7 @@ pub fn init_crypto() {
         .expect("failed to install default CryptoProvider");
 }
 
-pub fn generate_node() -> Node {
+pub async fn generate_node(ext_iface: &ExternalInterface) -> Result<Node> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
@@ -484,14 +462,12 @@ pub fn generate_node() -> Node {
 
     // IP addr
     let mut addresses = vec![];
-    for iface in get_if_addrs().unwrap() {
-        if iface.ip().is_ipv4() && !iface.is_loopback() {
-            addresses.push(NodeAddress {
-                address_type: "InternalIP".to_string(),
-                address: iface.ip().to_string(),
-            });
-            break;
-        }
+
+    if let Some(ip) = ext_iface.iface_addr {
+        addresses.push(NodeAddress {
+            address_type: "InternalIP".to_string(),
+            address: ip.to_string(),
+        });
     }
     addresses.push(NodeAddress {
         address_type: "Hostname".to_string(),
@@ -525,7 +501,7 @@ pub fn generate_node() -> Node {
         },
     ];
 
-    Node {
+    Ok(Node {
         api_version: "v1".to_string(),
         kind: "Node".to_string(),
         metadata: ObjectMeta {
@@ -543,5 +519,5 @@ pub fn generate_node() -> Node {
             addresses,
             conditions,
         },
-    }
+    })
 }

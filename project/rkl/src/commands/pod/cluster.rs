@@ -140,7 +140,7 @@ fn list_print(pod_list: Vec<String>) -> Result<()> {
     let mut tab_writer = TabWriter::new(io::stdout());
     writeln!(&mut tab_writer, "NAME\tREADY\tSTATUS\tRESTARTS\tAGE")?;
     for pod in pod_list {
-        let _ = writeln!(&mut tab_writer, "{}", pod);
+        let _ = writeln!(&mut tab_writer, "{pod}");
     }
     tab_writer.flush()?;
     Ok(())

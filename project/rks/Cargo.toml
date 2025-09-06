@@ -18,7 +18,7 @@ futures = "0.3.31"
 anyhow = "1.0.98"       
 rcgen = "0.12.1"
 etcd-client = "0.16.1"
-ipnetwork = "0.17.0"
+ipnetwork = "0.17"
 serde_json = "1.0.107"
 chrono = {version = "0.4.41", features = ["serde"]}
 log = "0.4.26"

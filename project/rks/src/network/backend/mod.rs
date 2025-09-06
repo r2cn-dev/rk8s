@@ -1,26 +1,17 @@
 #![allow(dead_code)]
-use crate::network::{config::Config, lease::Lease};
+use crate::network::config::Config;
 use anyhow::Result;
 use async_trait::async_trait;
-use libcni::ip::route::Interface;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use common::{ExternalInterface, lease::Lease};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub mod hostgw;
+pub mod interface;
 pub mod route;
 
 #[cfg(test)]
 pub mod tests;
-
-#[derive(Debug, Clone)]
-pub struct ExternalInterface {
-    pub iface: Interface,
-    pub iface_addr: Option<Ipv4Addr>,
-    pub iface_v6_addr: Option<Ipv6Addr>,
-    pub ext_addr: Option<Ipv4Addr>,
-    pub ext_v6_addr: Option<Ipv6Addr>,
-}
 
 /// Backend trait for different networking implementations
 #[async_trait]

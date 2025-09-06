@@ -11,7 +11,7 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-use crate::network::lease::Lease;
+use common::lease::Lease;
 
 /// Route manager for handling system routing table operations
 pub struct RouteManager {
@@ -64,8 +64,8 @@ impl RouteManager {
         }
     }
 
-    /// Generate IPv4 route for a lease
-    pub fn get_route_for_lease(&self, lease: &Lease) -> Option<Route> {
+    /// Generate IPv4 route form a lease
+    pub fn get_route_form_lease(&self, lease: &Lease) -> Option<Route> {
         if !lease.enable_ipv4 {
             return None;
         }
@@ -79,8 +79,8 @@ impl RouteManager {
         })
     }
 
-    /// Generate IPv6 route for a lease
-    pub fn get_v6_route_for_lease(&self, lease: &Lease) -> Option<Route> {
+    /// Generate IPv6 route form a lease
+    pub fn get_v6_route_form_lease(&self, lease: &Lease) -> Option<Route> {
         if !lease.enable_ipv6 {
             return None;
         }
@@ -130,13 +130,13 @@ impl RouteManager {
         debug!("Synchronizing routes for {} leases", leases.len());
 
         for lease in leases {
-            if let Some(route) = self.get_route_for_lease(lease)
+            if let Some(route) = self.get_route_form_lease(lease)
                 && let Err(e) = self.add_route(&route).await
             {
                 warn!("Failed to add IPv4 route for lease {}: {}", lease.subnet, e);
             }
 
-            if let Some(route_v6) = self.get_v6_route_for_lease(lease)
+            if let Some(route_v6) = self.get_v6_route_form_lease(lease)
                 && let Err(e) = self.add_v6_route(&route_v6).await
             {
                 warn!(
@@ -153,7 +153,7 @@ impl RouteManager {
         debug!("Cleaning up routes for {} leases", leases.len());
 
         for lease in leases {
-            if let Some(route) = self.get_route_for_lease(lease)
+            if let Some(route) = self.get_route_form_lease(lease)
                 && let Err(e) = self.delete_route(&route).await
             {
                 warn!(
@@ -162,7 +162,7 @@ impl RouteManager {
                 );
             }
 
-            if let Some(route_v6) = self.get_v6_route_for_lease(lease)
+            if let Some(route_v6) = self.get_v6_route_form_lease(lease)
                 && let Err(e) = self.delete_route(&route_v6).await
             {
                 warn!(
@@ -391,7 +391,7 @@ pub async fn add_blackhole_v6_route(dst: Ipv6Network) -> Result<()> {
     Ok(())
 }
 
-/// Generate IPv4 route for a lease
+/// Generate IPv4 route form a lease
 pub fn get_route_from_lease(lease: &Lease) -> Option<Route> {
     if !lease.enable_ipv4 {
         return None;
@@ -406,7 +406,7 @@ pub fn get_route_from_lease(lease: &Lease) -> Option<Route> {
     })
 }
 
-/// Generate IPv6 route for a lease
+/// Generate IPv6 route form a lease
 pub fn get_v6_route_from_lease(lease: &Lease) -> Option<Route> {
     if !lease.enable_ipv6 {
         return None;

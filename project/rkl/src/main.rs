@@ -52,5 +52,5 @@ fn main() -> Result<(), anyhow::Error> {
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     let cli = Cli::parse();
     cli.run()
-        .inspect_err(|err| eprintln!("Failed to run: {}", err))
+        .inspect_err(|err| eprintln!("Failed to run: {err}"))
 }

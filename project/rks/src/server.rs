@@ -1,13 +1,11 @@
 use crate::api::xlinestore::XlineStore;
 use crate::commands::{create, delete};
-use crate::network::{
-    self,
-    backend::route,
-    lease::{Lease, LeaseAttrs, LeaseWatchResult},
-    manager::LocalManager,
-};
+use crate::network::{self, backend::route, lease::LeaseWatchResult, manager::LocalManager};
 use anyhow::{Context, Result};
-use common::{NodeNetworkConfig, PodTask, RksMessage};
+use common::{
+    NodeNetworkConfig, PodTask, RksMessage,
+    lease::{Lease, LeaseAttrs},
+};
 use ipnetwork::{Ipv4Network, Ipv6Network};
 use libcni::ip::route::Route;
 use quinn::{Connection, Endpoint, ServerConfig};

@@ -10,3 +10,6 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 libcni = { path = "../libcni" }
+serde_json = "1.0"
+chrono = "0.4"
+ipnetwork = "0.17"

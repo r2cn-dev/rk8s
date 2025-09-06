@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Duration, Utc};
+use common::lease::{EventType, Lease, LeaseAttrs};
 use ipnetwork::{Ipv4Network, Ipv6Network};
 use log::{error, info, warn};
 use rand::prelude::IndexedRandom;
@@ -23,7 +24,7 @@ use tonic::Code;
 use crate::network::{
     config::{self, Config},
     ip::{next_ipv4_network, next_ipv6_network},
-    lease::{EventType, Lease, LeaseAttrs, LeaseWatchResult},
+    lease::LeaseWatchResult,
     registry::{Registry, XlineRegistryError},
     subnet,
 };

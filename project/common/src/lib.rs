@@ -1,7 +1,11 @@
-use libcni::ip::route::Route;
+use libcni::ip::route::{Interface, Route};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, Ipv6Addr},
+};
 
+pub mod lease;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TypeMeta {
     #[serde(rename = "apiVersion")]
@@ -156,4 +160,13 @@ pub struct Node {
 pub struct NodeNetworkConfig {
     pub node_id: String,
     pub subnet_env: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalInterface {
+    pub iface: Interface,
+    pub iface_addr: Option<Ipv4Addr>,
+    pub iface_v6_addr: Option<Ipv6Addr>,
+    pub ext_addr: Option<Ipv4Addr>,
+    pub ext_v6_addr: Option<Ipv6Addr>,
 }

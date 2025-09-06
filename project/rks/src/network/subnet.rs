@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use common::lease::{Event, EventType, Lease, LeaseAttrs};
 use ipnetwork::{Ipv4Network, Ipv6Network};
 use lazy_static::lazy_static;
 use log::{error, info};
@@ -14,7 +15,7 @@ use regex::Regex;
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::network::config::Config;
-use crate::network::lease::{Event, EventType, Lease, LeaseAttrs, LeaseWatchResult, LeaseWatcher};
+use crate::network::lease::{LeaseWatchResult, LeaseWatcher};
 
 lazy_static! {
     static ref SUBNET_REGEX: Regex =

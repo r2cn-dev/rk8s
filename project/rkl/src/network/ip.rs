@@ -7,6 +7,7 @@ use regex::Regex;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::network::iface;
+
 pub trait AddIP<N> {
     fn add(self, n: N) -> Self;
 }
