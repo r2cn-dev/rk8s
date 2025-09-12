@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::{Error, Result};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::passthrough::VFS_MAX_INO;
@@ -22,6 +22,8 @@ pub struct InodeStore {
     path_mapping: Trie<String, Inode>,
     next_inode: u64,
     inode_limit: u64,
+    // FUSE inode to nlink mapping
+    nlinks: HashMap<Inode, Arc<AtomicU64>>,
 }
 
 impl InodeStore {
@@ -32,6 +34,7 @@ impl InodeStore {
             path_mapping: Trie::new(),
             next_inode: 1,
             inode_limit: VFS_MAX_INO,
+            nlinks: HashMap::new(),
         }
     }
 
@@ -67,7 +70,11 @@ impl InodeStore {
     pub(crate) async fn insert_inode(&mut self, inode: Inode, node: Arc<OverlayInode>) {
         self.path_mapping
             .insert(node.path.read().await.clone(), inode);
-        self.inodes.insert(inode, node);
+        self.nlinks
+            .entry(inode)
+            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+            .fetch_add(1, Ordering::Relaxed);
+        self.inodes.entry(inode).or_insert(node);
     }
 
     pub(crate) fn get_inode(&self, inode: Inode) -> Option<Arc<OverlayInode>> {
@@ -84,39 +91,29 @@ impl InodeStore {
         inode: Inode,
         path_removed: Option<String>,
     ) -> Option<Arc<OverlayInode>> {
-        let removed = match self.inodes.remove(&inode) {
-            Some(v) => {
-                // Refcount is not 0, we have to delay the removal.
-                if v.lookups.load(Ordering::Relaxed) > 0 {
-                    trace!(
-                        "InodeStore:remove_inode: inode {inode} is still in use, delaying removal."
-                    );
-                    self.deleted.insert(inode, v.clone());
-                    return None;
-                }
-                Some(v)
-            }
-            None => {
-                // If the inode is not in hash, it must be in deleted_inodes.
-                match self.deleted.get(&inode) {
-                    Some(v) => {
-                        // Refcount is 0, the inode can be removed now.
-                        if v.lookups.load(Ordering::Relaxed) == 0 {
-                            self.deleted.remove(&inode)
-                        } else {
-                            // Refcount is not 0, the inode will be removed later.
-                            None
-                        }
-                    }
-                    None => None,
-                }
-            }
-        };
+        let old_nlink = self.nlinks.get(&inode)?.fetch_sub(1, Ordering::Relaxed);
 
         if let Some(path) = path_removed {
             self.path_mapping.remove(&path);
         }
-        removed
+
+        if old_nlink == 1
+            && let Some(inode_data) = self.inodes.remove(&inode)
+        {
+            if inode_data.lookups.load(Ordering::Relaxed) > 0 {
+                trace!(
+                    "InodeStore: inode {inode} unlinked but still in use, moving to deleted map."
+                );
+                self.deleted.insert(inode, inode_data);
+                return None;
+            } else {
+                trace!("InodeStore: inode {inode} permanently removed (nlink=0, lookups=0).");
+                self.nlinks.remove(&inode);
+                return Some(inode_data);
+            }
+        }
+
+        None
     }
 
     // As a debug function, print all inode numbers in hash table.

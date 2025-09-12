@@ -713,8 +713,8 @@ impl<S: BitmapSlice + Send + Sync> PassthroughFs<S> {
         let dir_file = dir.get_file()?;
         let (handle_arc, st) = self.open_file_and_handle(&dir_file, name).await?;
         let id = InodeId::from_stat(&st);
-        // trace!("FS {} do_lookup: parent: {}, name: {}, path_fd: {:?}, handle: {:?}, id: {:?}",
-        // self.uuid, parent, name.to_string_lossy(), path_fd.as_raw_fd(), handle_arc, id);
+        // trace!("do_lookup: parent: {}, name: {}, path_fd: {:?}, handle_opt: {:?}, id: {:?}",
+        //     parent, name.to_string_lossy(), path_fd.as_raw_fd(), handle_opt, id);
 
         let mut found = None;
         'search: loop {

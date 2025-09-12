@@ -286,8 +286,8 @@ impl Filesystem for OverlayFs {
         }
         let new_name = new_name.to_str().unwrap();
         // trace!(
-        //     "LINK: inode: {}, new_parent: {}, name: {}, trying to do_link: src_inode: {}, newpnode: {}",
-        //     inode, new_parent, name, node.inode, newpnode.inode
+        //     "LINK: inode: {}, new_parent: {}, trying to do_link: src_inode: {}, newpnode: {}",
+        //     inode, new_parent, node.inode, newpnode.inode
         // );
         self.do_link(req, &node, &newpnode, new_name).await?;
         // trace!("LINK: done, looking up new entry");
@@ -472,7 +472,9 @@ impl Filesystem for OverlayFs {
             let rh = if let Some(ref h) = hd.real_handle {
                 h
             } else {
-                return Err(Error::other("no handle").into());
+                return Err(
+                    Error::other(format!("no real handle found for file handle {fh}")).into(),
+                );
             };
             let real_handle = rh.handle.load(Ordering::Relaxed);
             let real_inode = rh.inode;
@@ -735,10 +737,25 @@ impl Filesystem for OverlayFs {
     /// be exactly one `releasedir` call. `fh` will contain the value set by the
     /// [`opendir`][Filesystem::opendir] method, or will be undefined if the
     /// [`opendir`][Filesystem::opendir] method didn't set any value.
-    async fn releasedir(&self, _req: Request, _inode: Inode, fh: u64, _flags: u32) -> Result<()> {
+    async fn releasedir(&self, req: Request, _inode: Inode, fh: u64, flags: u32) -> Result<()> {
         if self.no_opendir.load(Ordering::Relaxed) {
             info!("fuse: releasedir is not supported.");
             return Err(Error::from_raw_os_error(libc::ENOSYS).into());
+        }
+
+        if let Some(hd) = self.handles.lock().await.get(&fh) {
+            let rh = if let Some(ref h) = hd.real_handle {
+                h
+            } else {
+                return Err(
+                    Error::other(format!("no real handle found for file handle {fh}")).into(),
+                );
+            };
+            let real_handle = rh.handle.load(Ordering::Relaxed);
+            let real_inode = rh.inode;
+            rh.layer
+                .releasedir(req, real_inode, real_handle, flags)
+                .await?;
         }
 
         self.handles.lock().await.remove(&fh);
