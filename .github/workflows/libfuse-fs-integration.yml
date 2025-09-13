@@ -1,0 +1,70 @@
+name: libfuse-fs integration tests
+
+on:
+  pull_request:
+    paths:
+      - 'project/libfuse-fs/**'
+      - '.github/workflows/libfuse-fs-integration.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'project/libfuse-fs/**'
+      - '.github/workflows/libfuse-fs-integration.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libfuse-fs-int-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies (fio, fuse)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y fio fuse3 pkg-config libfuse3-dev
+          # sanity
+          fio -v | head -n1 || true
+          ior --version || true
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: project/libfuse-fs
+
+      - name: Clippy
+        working-directory: project/libfuse-fs
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit tests (fast)
+        working-directory: project/libfuse-fs
+        run: cargo test --lib --quiet
+
+      - name: Integration tests (overlayfs + passthrough)
+        run: |
+          chmod +x project/libfuse-fs/tests/integration_test.sh
+          ARTIFACT_ROOT=/tmp/libfuse-fs-int-ci project/libfuse-fs/tests/integration_test.sh
+          echo '--- Logs list ---'
+          ls -l /tmp/libfuse-fs-int-ci/logs || true
+
+      - name: Upload logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libfuse-fs-integration-logs
+          path: /tmp/libfuse-fs-int-ci/logs
+          if-no-files-found: ignore

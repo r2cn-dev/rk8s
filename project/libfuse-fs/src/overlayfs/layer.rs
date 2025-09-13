@@ -203,22 +203,31 @@ mod test {
 
     use rfuse3::raw::{Filesystem as _, Request};
 
-    use crate::{overlayfs::layer::Layer, passthrough::new_passthroughfs_layer};
+    use crate::{
+        overlayfs::layer::Layer, passthrough::new_passthroughfs_layer, unwrap_or_skip_eperm,
+    };
 
+    // Mark as ignored by default; run with: RUN_PRIVILEGED_TESTS=1 cargo test -- --ignored
+    #[ignore]
     #[tokio::test]
     async fn test_whiteout_create_delete() {
         let temp_dir = "/tmp/test_whiteout/t2";
         let rootdir = PathBuf::from(temp_dir);
         std::fs::create_dir_all(&rootdir).unwrap();
-        let fs = new_passthroughfs_layer(rootdir.to_str().unwrap())
-            .await
-            .unwrap();
-        let _ = fs.init(Request::default()).await;
+        if std::env::var("RUN_PRIVILEGED_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("skip test_whiteout_create_delete: RUN_PRIVILEGED_TESTS!=1");
+            return;
+        }
+        let fs = unwrap_or_skip_eperm!(
+            new_passthroughfs_layer(rootdir.to_str().unwrap()).await,
+            "init passthrough layer"
+        );
+        let _ = unwrap_or_skip_eperm!(fs.init(Request::default()).await, "fs init");
         let white_name = OsStr::new(&"test");
-        let res = fs
-            .create_whiteout(Request::default(), 1, white_name)
-            .await
-            .unwrap();
+        let res = unwrap_or_skip_eperm!(
+            fs.create_whiteout(Request::default(), 1, white_name).await,
+            "create whiteout"
+        );
 
         print!("{res:?}");
         let res = fs.delete_whiteout(Request::default(), 1, white_name).await;
@@ -233,20 +242,28 @@ mod test {
         let temp_dir = "/tmp/test_opaque_non_dir/t2";
         let rootdir = PathBuf::from(temp_dir);
         std::fs::create_dir_all(&rootdir).unwrap();
-        let fs = new_passthroughfs_layer(rootdir.to_str().unwrap())
-            .await
-            .unwrap();
-        let _ = fs.init(Request::default()).await;
+        if std::env::var("RUN_PRIVILEGED_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("skip test_is_opaque_on_non_directory: RUN_PRIVILEGED_TESTS!=1");
+            return;
+        }
+        let fs = unwrap_or_skip_eperm!(
+            new_passthroughfs_layer(rootdir.to_str().unwrap()).await,
+            "init passthrough layer"
+        );
+        let _ = unwrap_or_skip_eperm!(fs.init(Request::default()).await, "fs init");
 
         // Create a file
         let file_name = OsStr::new("not_a_dir");
-        let _ = fs
-            .create(Request::default(), 1, file_name, 0o644, 0)
-            .await
-            .unwrap();
+        let _ = unwrap_or_skip_eperm!(
+            fs.create(Request::default(), 1, file_name, 0o644, 0).await,
+            "create file"
+        );
 
         // Lookup to get the inode of the file
-        let entry = fs.lookup(Request::default(), 1, file_name).await.unwrap();
+        let entry = unwrap_or_skip_eperm!(
+            fs.lookup(Request::default(), 1, file_name).await,
+            "lookup file"
+        );
         let file_inode = entry.attr.ino;
 
         // is_opaque should return ENOTDIR error
@@ -266,20 +283,28 @@ mod test {
         let temp_dir = "/tmp/test_set_opaque_non_dir/t2";
         let rootdir = PathBuf::from(temp_dir);
         std::fs::create_dir_all(&rootdir).unwrap();
-        let fs = new_passthroughfs_layer(rootdir.to_str().unwrap())
-            .await
-            .unwrap();
-        let _ = fs.init(Request::default()).await;
+        if std::env::var("RUN_PRIVILEGED_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("skip test_set_opaque_on_non_directory: RUN_PRIVILEGED_TESTS!=1");
+            return;
+        }
+        let fs = unwrap_or_skip_eperm!(
+            new_passthroughfs_layer(rootdir.to_str().unwrap()).await,
+            "init passthrough layer"
+        );
+        let _ = unwrap_or_skip_eperm!(fs.init(Request::default()).await, "fs init");
 
         // Create a file
         let file_name = OsStr::new("not_a_dir2");
-        let _ = fs
-            .create(Request::default(), 1, file_name, 0o644, 0)
-            .await
-            .unwrap();
+        let _ = unwrap_or_skip_eperm!(
+            fs.create(Request::default(), 1, file_name, 0o644, 0).await,
+            "create file"
+        );
 
         // Lookup to get the inode of the file
-        let entry = fs.lookup(Request::default(), 1, file_name).await.unwrap();
+        let entry = unwrap_or_skip_eperm!(
+            fs.lookup(Request::default(), 1, file_name).await,
+            "lookup file"
+        );
         let file_inode = entry.attr.ino;
 
         // set_opaque should return ENOTDIR error

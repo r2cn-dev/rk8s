@@ -2645,7 +2645,7 @@ pub async fn mount_fs(
     mountpoint: String,
     upperdir: String,
     lowerdir: Vec<String>,
-    not_unprivileged: bool,
+    privileged: bool,
 ) -> rfuse3::raw::MountHandle {
     // Create lower layers
     let mut lower_layers = Vec::new();
@@ -2682,7 +2682,7 @@ pub async fn mount_fs(
     mount_options.force_readdir_plus(true).uid(uid).gid(gid);
 
     // Mount filesystem based on privilege flag and return the mount handle
-    if !not_unprivileged {
+    if !privileged {
         println!("Mounting with unprivileged mode");
         Session::new(mount_options)
             .mount_with_unprivileged(logfs, mount_path)

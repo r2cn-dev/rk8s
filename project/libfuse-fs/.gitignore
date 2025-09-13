@@ -1,3 +1,4 @@
 rootfs
 mount
 coreutils
+test_artifacts/
